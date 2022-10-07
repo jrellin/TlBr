@@ -377,15 +377,20 @@ def main(filename, **kwargs):
 
 
 if __name__ == "__main__":
+    import os
+    from pathlib import Path
+
     # base_folder = "C:/Users/justi/PycharmProjects/TlBr/Data_hdf5/"  # Windows Personal PC
-    base_folder = "C:/Users/tlbr-user/Documents/TlBr_Analysis_Python/drs4timing/Data_hdf5/"  # GBSF Windows
+    # base_folder = "C:/Users/tlbr-user/Documents/TlBr_Analysis_Python/drs4timing/Data_hdf5/"  # GBSF Windows
     # base_folder = "C:/Users/tlbr-user/Documents/TlBr_Analysis_Python/drs4timing/Data_hdf5/"
     # data_file_name = "DavisD2022_9_20T17_1_clean.h5"
     # data_file_name = "DavisD2022_9_22T16_3_clean.h5"
-    # data_file_name = "DavisD2022_9_23T15_51_clean.h5"  # weekend run
+    data_file_name = "DavisD2022_9_23T15_51_clean.h5"  # weekend run
     # data_file_name = "DavisD2022_9_28T13_48_clean.h5"  # Cs-137
     # data_file_name = "DavisD2022_9_28T16_13_clean.h5"  # Th-228, CG 8, FG 0, no sipm max
-    data_file_name = "DavisD2022_9_30T13_54_clean.h5" # Co60, CG 8, FG 0, no sipm max
-    fname = base_folder + data_file_name
+    # data_file_name = "DavisD2022_9_30T13_54_clean.h5" # Co60, CG 8, FG 0, no sipm max
+
+    fname = os.path.join(str(Path(os.getcwd()).parents[1]), "Data_hdf5", data_file_name)
+    print("fname: ", fname)
 
     main(fname)
