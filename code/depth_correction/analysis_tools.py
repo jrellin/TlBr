@@ -204,6 +204,21 @@ def main():  # clean binary to hdf5
     parse_to_hdf5(fname, n_anodes=n_anodes)
 
 
+def process_to_hdf5(raw_binary_file_name):  # raw binary to clean binary to hdf5
+    import os
+    # from pathlib import Path
+
+    raw_binary_base_folder = "C:/Users/tlbr-user/Documents/TlBr_Analysis_Python/drs4timing/Data_processed_binary/"
+    # raw_binary_file_name = "DavisD2022_9_30T13_54.dat"  # Co60, CG 8, FG 0, no sipm max
+    clean_binary_file_name = os.path.join(os.getcwd(), "Data_processed_binary",
+                                      os.path.splitext(os.path.basename(raw_binary_file_name))[0] + '_clean.dat')
+    # TODO: Return the file names directly from methods
+    n_anodes = 16
+    preprocess_binary_file(raw_binary_base_folder + raw_binary_file_name, n_anodes=n_anodes, verbose=True)
+    print("Raw binary to clean binary complete. Converting to hdf5!")
+    parse_to_hdf5(clean_binary_file_name, n_anodes=n_anodes)
+
+
 if __name__ == "__main__":
     # preprocess_main()
     main()
