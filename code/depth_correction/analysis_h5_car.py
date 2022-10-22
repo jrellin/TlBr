@@ -126,7 +126,7 @@ class Analysis(object):
 
         self.max_anode_cathode_histogram, self.anode_cathode_histograms = max_car_img, anode_car_imgs
 
-    def plot_2d_timing_histograms(self, pretrigger=0.15, plot_trigger=True, **kwargs):
+    def plot_2d_timing_histograms(self, **kwargs):
         # self._create_timing_2d_histograms(**kwargs)
         max_hist, anode_histograms = self.max_anode_cathode_histogram, self.anode_cathode_histograms
         # energy_limits=None, time_limits=None, time_bins=1000
@@ -150,10 +150,8 @@ class Analysis(object):
             fig1.colorbar(img, fraction=0.046, pad=0.04, ax=ax)
             ax.set_xlabel('Ch ' + str(i + 1) + ' ADC bin')
             ax.set_ylabel('Cathode ADC bin')
-            if plot_trigger:
-                ax.axhline(y=pretrigger * self.samples * self.sample_period, color='g', linestyle='--')
-            ax.set_xlim((0, 1200))
-            ax.set_ylim(46, 80)
+            ax.set_xlim((0, 1000))
+            ax.set_ylim(150, 350)
 
         fig2, ax2 = plt.subplots(1, 1, figsize=(6, 6))
         m_img = max_hist.img
@@ -161,10 +159,8 @@ class Analysis(object):
         m_img[0, :] = 0
         img = ax2.imshow(m_img, cmap='magma_r', origin='lower', interpolation='none', extent=np.append(a_extent, c_extent), aspect='auto')
         fig2.colorbar(img, fraction=0.046, pad=0.04, ax=ax2)
-        if plot_trigger:
-            ax2.axhline(y=pretrigger * self.samples * self.sample_period, color='g', linestyle='--')
-        # ax2.set_xlim((0, 600))
-        # ax2.set_ylim(46, 50)
+        ax2.set_xlim((0, 1000))
+        ax2.set_ylim(150, 350)
         ax2.set_xlabel('Max Anode ADC bin')
         ax2.set_ylabel('Cathode ADC bin')
 
@@ -173,7 +169,7 @@ class Analysis(object):
 
         plt.show()
 
-    def plot_1D_projections(self, pretrigger=0.15, plot_trigger=True,  anode_log_scale=True, cathode_log_scale=False,
+    def plot_1D_projections(self, anode_log_scale=True, cathode_log_scale=False,
                             **kwargs):
         # self._create_timing_2d_histograms(**kwargs)
         max_hist, anode_histograms = self.max_anode_cathode_histogram, self.anode_cathode_histograms
@@ -217,9 +213,6 @@ class Analysis(object):
             if cathode_log_scale:
                 c_ax.set_yscale('log')
 
-            if plot_trigger:
-                c_ax.axvline(x=pretrigger * self.samples * self.sample_period, color='g', linestyle='--')
-
         fig1.tight_layout()
         fig2.tight_layout()
 
@@ -245,9 +238,6 @@ class Analysis(object):
             ax32.set_yscale('log')  # time
 
         # ax32.set_xlim([35, 100])
-        if plot_trigger:
-            ax32.axvline(x=pretrigger * self.samples * self.sample_period, color='g', linestyle='--')
-
         fig3.tight_layout()
 
         plt.show()
