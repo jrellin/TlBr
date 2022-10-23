@@ -42,7 +42,7 @@ class DRS4BinaryFile(BufferedReader):
                 channel = int(header[1:].decode())
                 self.channels[board_id].append(channel)
 
-                self.time_widths[board_id][channel] =  self._read_timewidth_array()
+                self.time_widths[board_id][channel] = self._read_timewidth_array()
 
                 header = self.read(4)
 
@@ -107,15 +107,63 @@ class DRS4BinaryFile(BufferedReader):
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    import DRS4BinaryFile
+    # import DRS4BinaryFile
 
-    with DRS4BinaryFile('path/to/binaryfile') as f:
+    base_folder = "C:/Users/justi/Documents/Davis_Postdoc/crocker/drs4_data/"  # personal windows laptop
+    file = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"
+
+    with DRS4BinaryFile(base_folder + file) as f:
         print(f.board_ids)
         print(f.channels)
 
+        skip = 5000  # 10000, 1004
+        for _ in np.arange(skip):
+            next(f)
         event = next(f)
         print(event.event_id)
         print(event.timestamp)
 
-        # plt.plot(event.adc_data[1157][1])
-        # plt.show()
+        b0 = f.board_ids[0]  # first board
+        print(event.scalers[b0])
+
+        chs = len(event.adc_data[b0])
+        trg_cell = event.trigger_cells[b0]
+        corrected_voltage = np.zeros(1024)
+
+        time_corrected = [np.zeros(1024)] * 4
+        ref_ch0_cell = 0
+        ch_time_bins = np.zeros(1024)
+
+        for i in np.arange(chs):  # timing calibration, TODO: Allow for any channel to be reference
+            ch_time_bins[:] = np.cumsum(np.concatenate((np.array([0]), f.time_widths[b0][i + 1][trg_cell:1023],
+                                               f.time_widths[b0][i + 1][:trg_cell])))
+
+            ch0_cell = ch_time_bins[(1024 - trg_cell) % 1024]
+            if i == 0:  # first channel cell 0 is used as the global reference
+                ref_ch0_cell = ch0_cell
+                offset = 0
+
+            else:
+                offset = ref_ch0_cell - ch0_cell
+
+            time_corrected[i][:] = ch_time_bins + offset
+            # tmp_width = f.time_widths[b0][i + 1]
+            # c_way = np.zeros(1024)
+            # for i in np.arange(1024):
+            #     j = 0
+            #     while j < i:
+            #         c_way[i] += tmp_width[(j + trg_cell) % 1024]
+            #         j += 1
+            # print("Checking Channel {idx}".format(idx=i+1))
+            # print("c_way: ", c_way[:10])
+            # print("c way size: ", c_way.size)
+
+        fig, ax = plt.subplots(1, 1)
+        for i in np.arange(chs):  # voltage and plotting
+            corrected_voltage[:] = (event.adc_data[b0][i + 1]/65536) + (event.range_center/1000.0) - 0.5
+            # plt.plot(event.adc_data[b0][i + 1])  # uncorrected
+            ax.plot(time_corrected[i], corrected_voltage)
+        ax.set_xlabel('time (ns)')
+        ax.set_ylabel('amplitude (V)')
+        plt.show()
+
