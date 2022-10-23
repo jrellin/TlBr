@@ -2,4 +2,5 @@
 .ipynb_checkpoints/
 .idea/
 /Data_hdf5/*.h5
+/sample_data/drs4/*
 __pycache__/

@@ -108,11 +108,14 @@ class DRS4BinaryFile(BufferedReader):
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     # import DRS4BinaryFile
+    import os
+    from pathlib import Path
 
-    base_folder = "C:/Users/justi/Documents/Davis_Postdoc/crocker/drs4_data/"  # personal windows laptop
-    file = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"
+    data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"
+    fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_file_name)
+    # print("fname: ", fname)
 
-    with DRS4BinaryFile(base_folder + file) as f:
+    with DRS4BinaryFile(fname) as f:
         print(f.board_ids)
         print(f.channels)
 
@@ -142,7 +145,6 @@ if __name__ == "__main__":
             if i == 0:  # first channel cell 0 is used as the global reference
                 ref_ch0_cell = ch0_cell
                 offset = 0
-
             else:
                 offset = ref_ch0_cell - ch0_cell
 
