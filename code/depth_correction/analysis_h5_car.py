@@ -195,11 +195,11 @@ class Analysis(object):
             ch_hist = ch_obj.img
             # ch_hist[0, :] = 0
 
-            en_proj = np.sum(ch_hist, axis=0)  # energy projection
-            t_proj = np.sum(ch_hist, axis=1)  # time projection
+            a_proj = np.sum(ch_hist, axis=0)  # anode projection
+            c_proj = np.sum(ch_hist, axis=1)  # cathode projection
 
-            a_ax.step(a_step_bins, en_proj, 'b-', where='mid')
-            c_ax.step(c_step_bins * self.sample_period, t_proj, 'b-', where='mid')
+            a_ax.step(a_step_bins, a_proj, 'b-', where='mid')
+            c_ax.step(c_step_bins, c_proj, 'b-', where='mid')
 
             a_ax.set_title("Amplitude (Channel {n})".format(n=i + 1))
             c_ax.set_title("Amplitude (Channel {n})".format(n=i + 1))
@@ -219,8 +219,8 @@ class Analysis(object):
         fig3, (ax31, ax32) = plt.subplots(1, 2, figsize=(16, 12))  # ax31 -> energy, ax32 -> time
         max_img = max_hist.img
         # max_img[0, :] = 0
-        a_max_proj = np.sum(max_img, axis=0)  # energy max ch projection
-        c_max_proj = np.sum(max_img, axis=1)  # time max ch projection
+        a_max_proj = np.sum(max_img, axis=0)  # anode max ch projection
+        c_max_proj = np.sum(max_img, axis=1)  # anode max ch projection
 
         ax31.step(a_step_bins, a_max_proj, 'b-', where='mid')
         ax32.step(c_step_bins, c_max_proj, 'b-', where='mid')
@@ -240,6 +240,36 @@ class Analysis(object):
         # ax32.set_xlim([35, 100])
         fig3.tight_layout()
 
+        plt.show()
+
+    def cathode_gating(self, ch, low=210, high=250, log_scale=False):
+        # Mostly to give to hadong. Plot 1D original spectrum and cathode height gated spectrum.
+        anode_histograms = self.anode_cathode_histograms[ch-1]  # 0 offset in python
+        # return self.a_edges, self.c_edges  # anode, cathode
+        a_edges, c_edges = anode_histograms.bins
+        img = anode_histograms.img
+
+        a_step_bins = (a_edges[1:] + a_edges[:-1]) / 2
+        c_step_bins = (c_edges[1:] + c_edges[:-1]) / 2
+
+        c_gated_idx = (c_step_bins < high) & (c_step_bins > low)
+
+        fig, ax = plt.subplots(1, 1)
+
+        a_proj_unfiltered = np.sum(img, axis=0)  # anode projection unfiltered
+        a_proj_filtered = np.sum(img[c_gated_idx, :], axis=0)  # anode projection cathode height filtered
+
+        ax.step(a_step_bins, a_proj_unfiltered, 'b-', where='mid', label='ungated')
+        ax.step(a_step_bins, a_proj_filtered, 'r-', where='mid', label='gated')
+
+        ax.set_title("Amplitude (Channel {n})".format(n=ch))
+        ax.set_ylabel('Counts')
+        ax.set_xlim((0, 1000))
+
+        if log_scale:
+            ax.set_yscale('log')
+
+        ax.legend(loc='best')
         plt.show()
 
     def plot_SIPM_amplitudes(self, batch_read=30000):
@@ -302,6 +332,7 @@ def main(filename, **kwargs):
     prc.create_ca_2d_histograms()
     prc.plot_2d_ca_histograms()
     prc.plot_1D_projections()
+    prc.cathode_gating(3)
 
     prc.close()
 

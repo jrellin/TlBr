@@ -61,6 +61,9 @@ class CrockerSignals(object):
         """Finds rise time of each pulse for t0. Defined as a fraction f of the maximum pulse height."""
         pass
 
+    def test_rf_t0_points(self):
+        pass
+
 def main():
     import os
     from pathlib import Path
