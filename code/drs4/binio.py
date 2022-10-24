@@ -119,7 +119,7 @@ if __name__ == "__main__":
         print(f.board_ids)
         print(f.channels)
 
-        skip = 5000  # 10000, 1004
+        skip = 7000  # 10000, 1004
         for _ in np.arange(skip):
             next(f)
         event = next(f)
