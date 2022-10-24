@@ -10,7 +10,7 @@ class Analysis(object):
     """This class performs on the fly parsing of Data_hdf5 from SIS3316 card(s) based on set config settings"""
     n_anodes = 16
     n_cathodes = 1
-    block_read_evts = 30000
+    block_read_evts = 60000
     sample_period = 16/1000  # digitizer sample rate in microseconds
 
     def __init__(self, filename, verbose=False):
@@ -81,10 +81,10 @@ class Analysis(object):
             cathode_bins = (2**12)//4
 
         if anode_range is None:
-            anode_range = 2**12
+            anode_range = (np.array([0, 1]) * 2**12).astype('int')
 
         if cathode_range is None:
-            cathode_range = 2**12
+            cathode_range = (np.array([0, 1]) * 2**12).astype('int')
 
         max_car_img = CAImage([anode_range, cathode_range], [anode_bins, cathode_bins])
         anode_car_imgs = [CAImage([anode_range, cathode_range], [anode_bins, cathode_bins]) for _ in np.arange(self.n_anodes)]
@@ -126,14 +126,14 @@ class Analysis(object):
 
         self.max_anode_cathode_histogram, self.anode_cathode_histograms = max_car_img, anode_car_imgs
 
-    def plot_2d_timing_histograms(self, **kwargs):
+    def plot_2d_ca_histograms(self, **kwargs):
         # self._create_timing_2d_histograms(**kwargs)
         max_hist, anode_histograms = self.max_anode_cathode_histogram, self.anode_cathode_histograms
         # energy_limits=None, time_limits=None, time_bins=1000
         a_edges, c_edges = max_hist.bins
 
         a_extent = (a_edges[0], a_edges[-1])
-        c_extent = (c_edges[0] * self.sample_period, c_edges[-1] * self.sample_period)
+        c_extent = (c_edges[0], c_edges[-1])
         # y_extent = (t_edges[0], t_edges[-1])
 
         print("Anode extent: ", a_extent)
@@ -295,9 +295,12 @@ class CAImage(object):
 def main(filename, **kwargs):
     prc = Analysis(filename, **kwargs)
     # prc.det_calibration = 540 / np.array([540, 540, 540, 540, 570, 540, 530, 540, 550, 560, 550, 550, 270, 550, 560, 540])
-    # prc.plot_2d_timing_histograms()
+    prc.det_calibration = np.array([1, 0.66, 1, 1,
+                                    1, 1, 1, 1,
+                                    1, 1, 1, 1,
+                                    2, 1, 1, 1])
     prc.create_ca_2d_histograms()
-    prc.plot_2d_timing_histograms()
+    prc.plot_2d_ca_histograms()
     prc.plot_1D_projections()
 
     prc.close()
@@ -307,8 +310,9 @@ if __name__ == "__main__":
     import os
     from pathlib import Path
 
-    data_file_name = "DavisD2022_9_23T15_51_clean.h5"  # weekend run
-    fname = os.path.join(str(Path(os.getcwd()).parents[1]), "Data_hdf5", data_file_name)
+    # data_file_name = "DavisD2022_9_23T15_51_clean.h5"  # weekend run
+    data_file_name = "DavisD2022_10_20T12_7_clean.h5"  # Cs137, good data set
+    fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "Data_hdf5", data_file_name)
     print("fname: ", fname)
 
     main(fname)

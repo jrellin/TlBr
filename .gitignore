@@ -3,4 +3,5 @@
 .idea/
 /Data_hdf5/*.h5
 /sample_data/drs4/*
+/sample_data/Data_hdf5/*
 __pycache__/

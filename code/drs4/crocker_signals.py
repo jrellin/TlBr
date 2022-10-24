@@ -30,8 +30,8 @@ class CrockerSignals(object):
         trg_cell = self.event.trigger_cells[board]
         self.ch_time_bins[:] = np.cumsum(np.concatenate((np.array([0]), self.time_widths[board][ref][trg_cell:1023],
                                                          self.time_widths[board][ref][:trg_cell])))
-        ref_ch_0cell = self.ch_time_bins[(1024 - trg_cell) % 1024]
         time_calibrated[ref] = self.ch_time_bins.copy()
+        ref_ch_0cell = self.ch_time_bins[(1024 - trg_cell) % 1024]
 
         for chn in chns[chns != ref]:
             self.ch_time_bins[:] = np.cumsum(np.concatenate((np.array([0]), self.time_widths[board][chn][trg_cell:1023],
@@ -42,9 +42,24 @@ class CrockerSignals(object):
 
         return time_calibrated
 
-    def rf_ref_points(self):
-        pass
+    def _rf_ref_points(self, time_calibrated_bins, voltage_calibration):
+        """Find zero crossings of RF signal. Returns linear interpolated time points.
+        Needs time and voltage calibrated RF data points."""
+        zero_crossings = np.where(np.diff(np.sign(voltage_calibration)))[0]  # these are indices before zero
+        time_left_of_zeros = time_calibrated_bins[self.ch_names.index("rf")][zero_crossings]
+        time_right_of_zeros = time_calibrated_bins[self.ch_names.index("rf")][zero_crossings + 1]
 
+        v_signals_left_of_zeros = voltage_calibration[zero_crossings]
+        v_signals_right_of_zeros = voltage_calibration[zero_crossings + 1]
+        crossing_slopes = (v_signals_right_of_zeros - v_signals_left_of_zeros) / \
+                          (time_right_of_zeros - time_left_of_zeros)
+        # (v(0) - v(left))/(t(0)-t(left)) =m
+        # -> v(0) - v(left) = m (t(0) - t(left)) -> t(0) = -v(left)/m + t(left)
+        return time_left_of_zeros - (v_signals_left_of_zeros/crossing_slopes)
+
+    def _t0_ref_points(self, time_calibrated_bins, voltage_calibration, f=0.2):
+        """Finds rise time of each pulse for t0. Defined as a fraction f of the maximum pulse height."""
+        pass
 
 def main():
     import os
