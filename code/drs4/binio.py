@@ -165,6 +165,7 @@ if __name__ == "__main__":
             corrected_voltage[:] = (event.adc_data[b0][i + 1]/65536) + (event.range_center/1000.0) - 0.5
             # plt.plot(event.adc_data[b0][i + 1])  # uncorrected
             ax.plot(time_corrected[i], corrected_voltage)
+            # ax.plot(corrected_voltage)
         ax.set_xlabel('time (ns)')
         ax.set_ylabel('amplitude (V)')
         plt.show()
