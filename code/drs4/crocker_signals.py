@@ -86,9 +86,11 @@ class CrockerSignals(object):
         for chn in channels:  # voltage and plotting
             ax.plot(time_calibrated_bins[chn], voltage_calibrated[chn])
             # ax.plot(corrected_voltage)
+        ax.plot(crossings, np.zeros(crossings.size), "kX")
         ax.set_xlabel('time (ns)')
         ax.set_ylabel('amplitude (V)')
         plt.show()
+
 
 def main():
     import os

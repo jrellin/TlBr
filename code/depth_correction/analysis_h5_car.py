@@ -1,6 +1,7 @@
 import numpy as np
 from analysis_tools import load_h5file
 import matplotlib.pyplot as plt
+from code.utils import gaussian_fitting_functions as gft
 # This version attempts to further refine selection of events with timing windows and storing the 2D histogram in an
 # array for easy plotting in other methods. Builds off version 2 to be faster.
 # Previously v41 before 10/05/22
@@ -10,7 +11,7 @@ class Analysis(object):
     """This class performs on the fly parsing of Data_hdf5 from SIS3316 card(s) based on set config settings"""
     n_anodes = 16
     n_cathodes = 1
-    block_read_evts = 60000
+    block_read_evts = 100000
     sample_period = 16/1000  # digitizer sample rate in microseconds
 
     def __init__(self, filename, verbose=False):
@@ -20,6 +21,7 @@ class Analysis(object):
         self.samples = self.evt_data.col('points')[0]
         self.evts = self.evt_data.nrows
         self.filtered_evts = 0
+        self.anode_bin_scaler=1
 
         self.pin_map = np.array([[2, 1, 3, 4], [15, 8, 6, 5], [13, 11, 9, 7], [16, 14, 12, 10]])
         # channel map as pins as plugged into digitizer
@@ -76,6 +78,9 @@ class Analysis(object):
 
         if anode_bins is None:
             anode_bins = (2**12)//4
+            # anode_bins = (2 ** 12)
+
+        self.anode_bin_scaler = (2**12)/anode_bins
 
         if cathode_bins is None:
             cathode_bins = (2**12)//4
@@ -242,7 +247,7 @@ class Analysis(object):
 
         plt.show()
 
-    def cathode_gating(self, ch, low=210, high=250, log_scale=False):
+    def cathode_gating(self, ch, low=210, high=250, log_scale=False, fit_gaussian=True, fit_cs137=True):
         # Mostly to give to hadong. Plot 1D original spectrum and cathode height gated spectrum.
         anode_histograms = self.anode_cathode_histograms[ch-1]  # 0 offset in python
         # return self.a_edges, self.c_edges  # anode, cathode
@@ -262,12 +267,28 @@ class Analysis(object):
         ax.step(a_step_bins, a_proj_unfiltered, 'b-', where='mid', label='ungated')
         ax.step(a_step_bins, a_proj_filtered, 'r-', where='mid', label='gated')
 
-        ax.set_title("Amplitude (Channel {n})".format(n=ch))
         ax.set_ylabel('Counts')
         ax.set_xlim((0, 1000))
 
         if log_scale:
             ax.set_yscale('log')
+
+        if fit_gaussian:
+            if fit_cs137:
+                windowed_data = a_proj_filtered.copy()
+                windowed_data[:int(0.95 * np.argmax(a_proj_filtered))] = 0
+                popt, pcov = gft.gauss_fit(a_step_bins, windowed_data)
+                fit_amplitude, fit_center, fit_sigma, fit_bkg = popt
+                resolution = (2.355 * fit_sigma)/fit_center
+                print("Resolution: ", resolution)
+                ax.step(a_step_bins, gft.gauss(a_step_bins, *popt), 'g--', label='fit: {:.2%} resolution'.format(resolution))
+
+            else:  # TODO: general case
+                pass
+
+            ax.set_xlabel("Channel {n} ADC Bin".format(n=ch))
+        else:
+            ax.set_title("Amplitude (Channel {n})".format(n=ch))
 
         ax.legend(loc='best')
         plt.show()
