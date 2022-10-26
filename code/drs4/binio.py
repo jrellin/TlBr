@@ -111,7 +111,8 @@ if __name__ == "__main__":
     import os
     from pathlib import Path
 
-    data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"
+    # data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"
+    data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # LFS
     fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_file_name)
     # print("fname: ", fname)
 
@@ -119,7 +120,7 @@ if __name__ == "__main__":
         print(f.board_ids)
         print(f.channels)
 
-        skip = 7000  # 10000, 1004
+        skip = 1000  # 10000, 1004
         for _ in np.arange(skip):
             next(f)
         event = next(f)

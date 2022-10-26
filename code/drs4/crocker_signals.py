@@ -4,6 +4,19 @@ from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
 
 
+def linear_interpolate_trigger(time_bins, waveform, baseline, f=0.2):
+    """Assumes positive polarity signals"""
+    wf = waveform - baseline
+    t = time_bins
+    max_sig_fv = f * np.max(wf)
+
+    ati = np.argmax(np.sign(wf - max_sig_fv))  # (a)fter (t)rigger (i)ndex
+    m = (wf[ati] - wf[ati-1]) / (t[ati]-t[ati-1])  # slope
+    interp_t = t[ati-1] + ((max_sig_fv - wf[ati-1])/m)
+
+    return interp_t, max_sig_fv + baseline  # add back baseline for plotting
+
+
 class CrockerSignals(object):
 
     def __init__(self, filename):
@@ -15,8 +28,8 @@ class CrockerSignals(object):
         self.channels = self.f.channels
         self.n_channels = [len(self.channels[b]) for b in self.board_ids]
         self.event = next(self.f)  # first event
-        self.ch_time_bins = np.zeros(1024)  # temporary working memory for time calibration
-        self.t0_channel_copy = np.zeros(1024)  # temporary t0 channel copy
+        self.ch_time_bins = np.zeros(1024)  # temporary working memory for time calibration data
+        self.buffer = np.zeros(1024)  # temporary working memory for voltage calibration data
         # self.ch_names = ["rf", "lfs", "cherenkov", "t0"]
         self.ch_names = {"rf": 1, "lfs": 2, "cherenkov": 3, "t0": 4}
 
@@ -71,10 +84,10 @@ class CrockerSignals(object):
         # 30 samples before max, 120 is after max to "baseline", 0.01 V (10 mV) threshold?
         # mask out 100 samples before and after
         t0_time_bins = time_calibrated_bins[self.ch_names["t0"]]
-        self.t0_channel_copy[:] = -voltage_calibrations[self.ch_names["t0"]]
+        self.buffer[:] = -voltage_calibrations[self.ch_names["t0"]]
 
-        t0_ref_time = np.ones(5) * -1
-        t0_ref_voltage = np.ones(5) * -1
+        t0_ref_time = np.ones(5) * -10
+        t0_ref_voltage = np.ones(5) * -10
         # below_threshold = 0
 
         n_max = 5  # 200 ns range, 44.4 ns period
@@ -83,81 +96,61 @@ class CrockerSignals(object):
         find_pulses = True
 
         while (n_pulse <= n_max) & find_pulses:
-            next_trigger_idx = np.argmax(self.t0_channel_copy)  # possible
-            next_max_value = self.t0_channel_copy[next_trigger_idx]  # possible
+            next_trigger_idx = np.argmax(self.buffer)  # possible
+            next_max_value = self.buffer[next_trigger_idx]  # possible
 
             mask_left_idx = next_trigger_idx - 100
             mask_right_idx = next_trigger_idx + 100
 
             if mask_left_idx < 0:  # pulse near left edge
                 if next_trigger_idx - 40 > 0:  # not too close for baseline subtraction
-                    baseline = np.mean(self.t0_channel_copy[(next_trigger_idx-40):(next_trigger_idx-30)])
+                    baseline = np.mean(self.buffer[(next_trigger_idx-40):(next_trigger_idx-30)])
                     mask_left_idx = 0
                 else:  # too close to edge for baseline subtraction and thus timing
-                    self.t0_channel_copy[:next_trigger_idx + 100] = np.min(self.t0_channel_copy)
+                    self.buffer[:next_trigger_idx + 100] = np.min(self.buffer)
                     continue
             else:
-                baseline = np.mean(self.t0_channel_copy[(next_trigger_idx - 100):(next_trigger_idx - 30)])
+                baseline = np.mean(self.buffer[(next_trigger_idx - 100):(next_trigger_idx - 30)])
 
-            if mask_right_idx > (self.t0_channel_copy.size-1):  # pulse near right edge
-                mask_right_idx = self.t0_channel_copy.size  # this is so confusing
+            if mask_right_idx > (self.buffer.size-1):  # pulse near right edge
+                mask_right_idx = self.buffer.size  # this is so confusing
 
             if (next_max_value - baseline) < thr:  # no more peaks above threshold, time to stop
                 find_pulses = False
                 continue
 
-            window_signal_voltage = self.t0_channel_copy[mask_left_idx:mask_right_idx] - baseline
+            window_signal_voltage = self.buffer[mask_left_idx:mask_right_idx]
             window_signal_tbins = t0_time_bins[mask_left_idx:mask_right_idx]
 
-            max_sig_fv = f * (next_max_value - baseline)  # fraction of max value
-            after_trig_idx = np.argmax(np.sign(window_signal_voltage - max_sig_fv))
+            trg_t, trg_v = linear_interpolate_trigger(window_signal_tbins, window_signal_voltage, baseline, f=f)
 
-            after_trig_v = window_signal_voltage[after_trig_idx]
-            after_trig_t = window_signal_tbins[after_trig_idx]
+            t0_ref_time[n_pulse - 1] = trg_t  # python index by 0...
+            t0_ref_voltage[n_pulse - 1] = trg_v
 
-            before_trig_v = window_signal_voltage[after_trig_idx-1]
-            before_trig_t = window_signal_tbins[after_trig_idx-1]
-
-            m = (after_trig_v - before_trig_v) / (after_trig_t - before_trig_t)  # slope
-            # -> v(f) - v(l) = m (t(f) - t(l)) -> t(f) = (v(f) - v(l))/m + t(l)
-            trig_t = ((max_sig_fv - before_trig_v)/m) + before_trig_t
-
-            t0_ref_time[n_pulse - 1] = trig_t  # python index by 0...
-            t0_ref_voltage[n_pulse - 1] = max_sig_fv
-
-            self.t0_channel_copy[mask_left_idx:mask_right_idx] = np.min(self.t0_channel_copy)
-            print("n_pulse: ", n_pulse)
+            self.buffer[mask_left_idx:mask_right_idx] = np.min(self.buffer)
+            # print("n_pulse: ", n_pulse)
             n_pulse += 1
 
-        return t0_ref_time[t0_ref_time > 0], t0_ref_voltage[t0_ref_voltage > 0] + baseline
+        return t0_ref_time[t0_ref_time > -10], t0_ref_voltage[t0_ref_voltage > -10]
 
     def _detector_trigger(self, time_calibrated_bins, voltage_calibrations, f=0.2):
         """cherenkov or lfs_en channel name"""
         det_name = [key for key in self.ch_names.keys() if key not in ('rf', 'lfs', 't0')][0]
         det_time_bins = time_calibrated_bins[self.ch_names[det_name]]
-        det_waveform = voltage_calibrations[self.ch_names[det_name]].copy()
+        self.buffer[:] = voltage_calibrations[self.ch_names[det_name]]
         print("det name: ", det_name)
         baseline = 0
+        bl_edge = 100
         if det_name == "cherenkov":
-            baseline = np.mean(det_waveform[100:200])
+            baseline = np.mean(self.buffer[100:200])
             bl_edge = 100
         elif det_name == "lfs_en":
-            baseline = np.mean(det_waveform[100:200])
+            baseline = np.mean(self.buffer[100:200])
             bl_edge = 100
 
-        det_waveform -= baseline
-        det_waveform[:bl_edge] = np.min(det_waveform)
-
-        max_sig_fv = f * np.max(det_waveform)  # fraction of max value
-        print("max_sig_fv: ", max_sig_fv)
-
-        at_idx = np.argmax(np.sign(det_waveform - max_sig_fv))  # (a)fter (t)rigger index
-        print("at_idx: ", at_idx)
-        print("wavweforms 5 before and after trig: ", det_waveform[at_idx-5:at_idx+5])
-        m = (det_waveform[at_idx] - det_waveform[at_idx-1])/(det_time_bins[at_idx]-det_time_bins[at_idx-1])
-        trig_t = ((max_sig_fv - det_waveform[at_idx-1]) / m) + det_time_bins[at_idx-1]
-        print("trig_t: ", trig_t)
-        return trig_t, max_sig_fv + baseline
+        self.buffer[:bl_edge] = np.min(self.buffer)
+        trg_t, trg_v = linear_interpolate_trigger(det_time_bins, self.buffer, baseline, f=f)
+        return trg_t, trg_v
 
     def test_rf_t0_points(self):
         board = self.board_ids[0]
@@ -188,12 +181,13 @@ def main():
     import os
     from pathlib import Path
 
-    data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"
+    data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"  # cherenkov
+    # data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # LFS
     fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_file_name)
     tst = CrockerSignals(fname)
     print(tst.f.board_ids)
 
-    skip = 208
+    skip = 308
     for _ in np.arange(skip):
         event = next(tst.f)
         # print(event.timestamp)
