@@ -113,6 +113,7 @@ if __name__ == "__main__":
 
     # data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"
     data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # LFS
+    # LFS -> RF, lfs (timing), lfs_en, t0
     fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_file_name)
     # print("fname: ", fname)
 
@@ -120,7 +121,7 @@ if __name__ == "__main__":
         print(f.board_ids)
         print(f.channels)
 
-        skip = 1000  # 10000, 1004
+        skip = 4000  # 10000, 1004 # 4000 for LFS spike artifact
         for _ in np.arange(skip):
             next(f)
         event = next(f)
@@ -150,23 +151,13 @@ if __name__ == "__main__":
                 offset = ref_ch0_cell - ch0_cell
 
             time_corrected[i][:] = ch_time_bins + offset
-            # tmp_width = f.time_widths[b0][i + 1]
-            # c_way = np.zeros(1024)
-            # for i in np.arange(1024):
-            #     j = 0
-            #     while j < i:
-            #         c_way[i] += tmp_width[(j + trg_cell) % 1024]
-            #         j += 1
-            # print("Checking Channel {idx}".format(idx=i+1))
-            # print("c_way: ", c_way[:10])
-            # print("c way size: ", c_way.size)
 
         fig, ax = plt.subplots(1, 1)
         for i in np.arange(chs):  # voltage and plotting
             corrected_voltage[:] = (event.adc_data[b0][i + 1]/65536) + (event.range_center/1000.0) - 0.5
             # plt.plot(event.adc_data[b0][i + 1])  # uncorrected
-            ax.plot(time_corrected[i], corrected_voltage)
-            # ax.plot(corrected_voltage)
+            # ax.plot(time_corrected[i], corrected_voltage)
+            ax.plot(corrected_voltage)
         ax.set_xlabel('time (ns)')
         ax.set_ylabel('amplitude (V)')
         plt.show()

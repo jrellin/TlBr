@@ -2,7 +2,7 @@ from binio import DRS4BinaryFile
 import numpy as np
 from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
-# This file was to test trigger method implementation. Analysis done in crocker_signals_timing
+
 
 def linear_interpolate_trigger(time_bins, waveform, baseline, f=0.2):
     """Assumes positive polarity signals"""
