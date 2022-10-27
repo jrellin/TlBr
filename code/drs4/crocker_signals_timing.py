@@ -21,7 +21,18 @@ def correlate_pulse_trains(t1, t2):
     """Correlates t1 values to nearest t2. T1 and T2 do not need to be the same size. T1 is tf, T2 is t0"""
     time_pairs = t1 - t2[:, np.newaxis]  # first t1 value - t2 values are in first row, second t1 value - t2 in 2nd, ...
     closest_t_idx = np.argmin(np.abs(time_pairs), axis=np.argmax(time_pairs.shape).item())
-    del_t = time_pairs[np.arange(np.min(time_pairs.shape)), closest_t_idx]
+    try:
+        if np.argmax(time_pairs.shape).item():
+            del_t = time_pairs[np.arange(np.min(time_pairs.shape)), closest_t_idx]
+        else:
+            del_t = time_pairs[closest_t_idx, np.arange(np.min(time_pairs.shape))]
+        # del_t = time_pairs[closest_t_idx, np.arange(np.min(time_pairs.shape))]
+    except IndexError:
+        print("argmax axis: ", np.argmax(time_pairs.shape).item())
+        print("Error")
+        print("closest_t_idx: ", np.argmin(np.abs(time_pairs), axis=np.argmax(time_pairs.shape).item()))
+        print("time_pairs: ", time_pairs)
+        print("time_pairs shape: ", time_pairs.shape)
     return del_t  # hopefully the closest pairs of values
 
 
@@ -189,7 +200,7 @@ class CrockerSignalsCherenkov(object):
         det_name = [key for key in self.ch_names.keys() if key not in ('rf', 'lfs', 't0')][0]
         det_time_bins = time_calibrated_bins[self.ch_names[det_name]]
         self.buffer[:] = voltage_calibrations[self.ch_names[det_name]]
-        print("det name: ", det_name)
+        # print("det name: ", det_name)
         baseline = 0
         bl_edge = 100
         if det_name == "cherenkov":
@@ -285,6 +296,10 @@ class CrockerSignalsCherenkov(object):
             keep_reading = False
             pass
         finally:
+            # empty buffers
+            rise_times += np.histogram(rise_time_buffer[:ptr], bins=rt_bins)[0]
+            amps += np.histogram(rt_amp_buffer[:ptr], bins=amp_bins)[0]
+
             print("Total pulses: ", evts)
             print("Missed pulses: ", missed_evts)
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 12))  # ax1 -> rise_times, ax2 -> amplitudes
@@ -301,13 +316,11 @@ class CrockerSignalsCherenkov(object):
 
             plt.show()
 
-    def t0_to_rf_and_detector(self, log_scale=False):
+    def rf_to_t0_and_detector(self, log_scale=False):
         """Generates histogram of 10-90 rise times and amplitudes of t0 signal."""
         board = self.board_ids[0]
         channels = self.channels[board]
         t0_frac = np.array([0.2])  # "CFD" for t0
-
-        amps, amp_bins = np.histogram([], bins=np.linspace(0, 0.2, num=2001))
 
         t0_to_rf_times, t0_rf_bins = np.histogram([], bins=np.linspace(-22, 22, num=2001))
         t0_to_det_times, t0_det_bins = np.histogram([], bins=np.linspace(-22, 22, num=2001))
@@ -344,14 +357,14 @@ class CrockerSignalsCherenkov(object):
                 missed_evts += (5 - t0refs)  # ideally 5 because of crocker RF period (44.4 ns)
 
                 if (ptr_rf + t0refs) > (t0_rf_time_buffer.size - 20):  # Next set of events close to end of buffer
-                    print("Appending to rf-t0 histograms. Full buffers.")
+                    print("Appending to rf-t0 histograms. Full rf-t0 buffers.")
                     t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t0_rf_bins)[0]
-                    ptr = 0  # back to beginning of buffer
+                    ptr_rf = 0  # back to beginning of buffer
 
                 if (ptr_g + 1) > (t0_det_time_buffer.size - 20):  # Next set of events close to end of buffer
-                    print("Appending to gamma histograms. Full buffers.")
+                    print("Appending to gamma histograms. Full gamma buffers.")
                     t0_to_det_times += np.histogram(t0_det_time_buffer[:ptr_g], bins=t0_det_bins)[0]
-                    ptr = 0  # back to beginning of buffer
+                    ptr_g = 0  # back to beginning of buffer
 
                 self.event = next(self.f)  # move to next event, stop iteration otherwise
 
@@ -360,17 +373,23 @@ class CrockerSignalsCherenkov(object):
             keep_reading = False
             pass
         finally:
-            # TODO: Empty buffers
+            print("Emptying remaining buffers.")
+            t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t0_rf_bins)[0]
+            t0_to_det_times += np.histogram(t0_det_time_buffer[:ptr_g], bins=t0_det_bins)[0]
+
             print("Total pulses: ", evts)
             print("Missed pulses: ", missed_evts)
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 12))  # ax1 -> rise_times, ax2 -> amplitudes
-            fig.suptitle("T0 Rise Time and Max Pulse Voltage", fontsize=22)
-            for ax, bin_edges, values, xlbl in zip((ax1, ax2), (rt_bins, amp_bins), (rise_times, amps),
-                                                   ("time (ns)", "max voltage (V)")):
+            fig.suptitle("RF to T0 and Detector $\Delta$T", fontsize=22)
+            for ax, bin_edges, values, xlbl, title in zip((ax1, ax2), (t0_rf_bins, t0_det_bins),
+                                                          (t0_to_rf_times, t0_to_det_times),
+                                                          ("$\Delta$T (ns)", "$\Delta$T (ns)"),
+                                                          ("$T_{t0}-T_{rf}$", "$T_{\gamma}-T_{rf}$")):
                 bins = (bin_edges[1:] + bin_edges[:-1]) / 2
                 ax.step(bins, values, 'b-', where='mid')
                 ax.set_xlabel(xlbl, fontsize=18)
                 ax.set_ylabel("counts", fontsize=18)
+                ax.set_title(title, fontsize=18)
                 ax.tick_params(axis='both', labelsize=16)
 
                 if log_scale:
@@ -397,6 +416,12 @@ def t0_statistics(fname):
     t0data.t0_statistics()
 
 
+def t0_rf_det_delta_t(fname):
+    t0data = CrockerSignalsCherenkov(fname)
+    print(t0data.f.board_ids)
+    t0data.rf_to_t0_and_detector()
+
+
 if __name__ == "__main__":
     import os
     from pathlib import Path
@@ -405,5 +430,6 @@ if __name__ == "__main__":
     # data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # LFS
     fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_file_name)
 
-    test_triggers(fname)
+    # test_triggers(fname)
     # t0_statistics(fname)
+    t0_rf_det_delta_t(fname)
