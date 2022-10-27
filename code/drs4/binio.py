@@ -124,6 +124,16 @@ if __name__ == "__main__":
         skip = 4000  # 10000, 1004 # 4000 for LFS spike artifact
         for _ in np.arange(skip):
             next(f)
+
+        # i = 0  # Below is how you can iterate on all events
+        # try:
+        #     for evt in f:
+        #         i += 1
+        # except StopIteration as e:
+        #     pass
+        # finally:
+        #     print(i)
+
         event = next(f)
         print(event.event_id)
         print(event.timestamp)

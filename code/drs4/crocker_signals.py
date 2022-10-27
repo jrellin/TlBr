@@ -17,7 +17,7 @@ def linear_interpolate_trigger(time_bins, waveform, baseline, f=0.2):
     return interp_t, max_sig_fv + baseline  # add back baseline for plotting
 
 
-def rise_time_points(time_bins, waveform, baseline, f=np.array(0.1, 0.2, 0.9)):
+def rise_time_points(time_bins, waveform, baseline, f=np.array([0.1, 0.2, 0.9])):
     """Same as linear interpolate trigger but returns multiple thresholds and the maximum relative amplitude.
      Used for t0 rise time analysis and triggers."""
     wf = waveform - baseline

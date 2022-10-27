@@ -17,17 +17,18 @@ def linear_interpolate_trigger(time_bins, waveform, baseline, f=0.2):
     return interp_t, max_sig_fv + baseline  # add back baseline for plotting
 
 
-def rise_time_points(time_bins, waveform, baseline, f=np.array(0.1, 0.2, 0.9)):
+def rise_time_points(time_bins, waveform, baseline, f=np.array([0.1, 0.2, 0.9])):
     """Same as linear interpolate trigger but returns multiple thresholds and the maximum relative amplitude.
      Used for t0 rise time analysis and triggers."""
-    wf = waveform - baseline
+    wf = waveform.copy()
+    wf -= baseline
     t = time_bins
 
     interp_trgs = np.zeros_like(f)
 
     max_sig = np.max(wf)
     for i, fract in enumerate(f):
-        max_sig_fv = f * max_sig
+        max_sig_fv = fract * max_sig
         ati = np.argmax(np.sign(wf - max_sig_fv))  # (a)fter (t)rigger (i)ndex
         m = (wf[ati] - wf[ati - 1]) / (t[ati] - t[ati - 1])  # slope
         interp_trgs[i] = t[ati - 1] + ((max_sig_fv - wf[ati - 1]) / m)
@@ -117,17 +118,16 @@ class CrockerSignalsCherenkov(object):
         # -> v(0) - v(left) = m (t(0) - t(left)) -> t(0) = -v(left)/m + t(left)
         return time_left_of_zeros - (v_signals_left_of_zeros/crossing_slopes), np.sign(crossing_slopes)
 
-    def _t0_ref_points(self, time_calibrated_bins, voltage_calibrations, f=0.2, thr=0.01):
-        """Finds trigger time of each pulse for t0. Defined as a fraction f of the maximum pulse height."""
-        # t0_waveform = -voltage_calibrations[self.ch_names["t0"]]  # flip to find peaks not troughs
-        # 30 samples before max, 120 is after max to "baseline", 0.01 V (10 mV) threshold?
-        # mask out 100 samples before and after
+    def _t0_ref_points(self, time_calibrated_bins, voltage_calibrations, f=np.array([0.1, 0.2, 0.9]), thr=0.01):
+        """Finds trigger time of each pulse for t0. Defined as a fraction f of the maximum pulse height.
+        Method changed from crocker_signals."""
         t0_time_bins = time_calibrated_bins[self.ch_names["t0"]]
         self.buffer[:] = -voltage_calibrations[self.ch_names["t0"]]
 
-        t0_ref_time = np.ones(5) * -10
+        f_pts = f.size
+        t0_ref_time = np.ones([f_pts, 5]) * -10
         t0_ref_voltage = np.ones(5) * -10
-        # below_threshold = 0
+        t0_baseline = np.ones(5) * -10
 
         n_max = 5  # 200 ns range, 44.4 ns period
         n_pulse = 1
@@ -161,16 +161,17 @@ class CrockerSignalsCherenkov(object):
             window_signal_voltage = self.buffer[mask_left_idx:mask_right_idx]
             window_signal_tbins = t0_time_bins[mask_left_idx:mask_right_idx]
 
-            trg_t, trg_v = linear_interpolate_trigger(window_signal_tbins, window_signal_voltage, baseline, f=f)
+            trgs_t, trg_max_v = rise_time_points(window_signal_tbins, window_signal_voltage, baseline, f=f)
+            t0_ref_time[..., n_pulse - 1] = trgs_t
 
-            t0_ref_time[n_pulse - 1] = trg_t  # python index by 0...
-            t0_ref_voltage[n_pulse - 1] = trg_v
+            t0_ref_voltage[n_pulse - 1] = trg_max_v
+            t0_baseline[n_pulse - 1] = baseline
 
             self.buffer[mask_left_idx:mask_right_idx] = np.min(self.buffer)
             # print("n_pulse: ", n_pulse)
             n_pulse += 1
 
-        return t0_ref_time[t0_ref_time > -10], t0_ref_voltage[t0_ref_voltage > -10]
+        return t0_ref_time[..., :n_pulse], t0_ref_voltage[..., :n_pulse], t0_baseline
 
     def _detector_trigger(self, time_calibrated_bins, voltage_calibrations, f=0.2):
         """cherenkov or lfs_en channel name"""
@@ -197,8 +198,10 @@ class CrockerSignalsCherenkov(object):
         voltage_calibrated = self.event_voltage_calibrate(board, channels)
         time_calibrated_bins = self.event_timing_calibrate(board, channels)
 
+        # t0_frac = np.array([0.1, 0.2, 0.9])
+        t0_frac = np.array([0.1, 0.2, 0.9])
         crossings, slope_sign = self._rf_ref_points(time_calibrated_bins, voltage_calibrated)
-        t0_trigs, t0_voltage_at_trig = self._t0_ref_points(time_calibrated_bins, voltage_calibrated)
+        t0_trigs, t0_max_pulse_voltages, t0_baselines = self._t0_ref_points(time_calibrated_bins, voltage_calibrated, f=t0_frac)
         det_trig, det_voltage_at_trig = self._detector_trigger(time_calibrated_bins, voltage_calibrated)
 
         fig, ax = plt.subplots(1, 1)
@@ -209,24 +212,29 @@ class CrockerSignalsCherenkov(object):
             ax.plot(time_calibrated_bins[chn], voltage_calibrated[chn] * polarity)
             # ax.plot(voltage_calibrated[chn] * polarity)
         ax.plot(crossings, np.zeros(crossings.size), "kX")
-        ax.plot(t0_trigs, t0_voltage_at_trig, "o")
+        # ax.plot(np.squeeze(t0_trigs), t0_voltage_at_trig, "o")  # for single trigger
+        for f, trg in zip(t0_frac, t0_trigs):
+            thr_voltages = t0_max_pulse_voltages * f
+            baseline = t0_baselines
+            ax.plot(trg, thr_voltages + baseline, "o")
+
         ax.plot(det_trig, det_voltage_at_trig, "8")
         ax.set_xlabel('time (ns)')
         ax.set_ylabel('amplitude (V)')
         plt.show()
 
 
-def main():
-    import os
-    from pathlib import Path
-
-    data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"  # cherenkov
-    # data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # LFS
-    fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_file_name)
+def t0_statistics(fname):
+    """Generates histogram of 10-90 rise times and amplitudes of t0 signal."""
     tst = CrockerSignalsCherenkov(fname)
     print(tst.f.board_ids)
 
-    skip = 308
+
+def main(fname):
+    tst = CrockerSignalsCherenkov(fname)
+    print(tst.f.board_ids)
+
+    skip = 508
     for _ in np.arange(skip):
         event = next(tst.f)
         # print(event.timestamp)
@@ -236,4 +244,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import os
+    from pathlib import Path
+
+    data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"  # cherenkov
+    # data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # LFS
+    fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_file_name)
+
+    main(fname)
