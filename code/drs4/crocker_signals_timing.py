@@ -17,6 +17,14 @@ def linear_interpolate_trigger(time_bins, waveform, baseline, f=0.2):
     return interp_t, max_sig_fv + baseline  # add back baseline for plotting
 
 
+def correlate_pulse_trains(t1, t2):
+    """Correlates t1 values to nearest t2. T1 and T2 do not need to be the same size. T1 is tf, T2 is t0"""
+    time_pairs = t1 - t2[:, np.newaxis]  # first t1 value - t2 values are in first row, second t1 value - t2 in 2nd, ...
+    closest_t_idx = np.argmin(np.abs(time_pairs), axis=np.argmax(time_pairs.shape).item())
+    del_t = time_pairs[np.arange(np.min(time_pairs.shape)), closest_t_idx]
+    return del_t  # hopefully the closest pairs of values
+
+
 def rise_time_points(time_bins, waveform, baseline, f=np.array([0.1, 0.2, 0.9])):
     """Same as linear interpolate trigger but returns multiple thresholds and the maximum relative amplitude.
      Used for t0 rise time analysis and triggers."""
@@ -239,14 +247,11 @@ class CrockerSignalsCherenkov(object):
         rise_time_buffer = np.zeros(50000)  # temp storage
         rt_amp_buffer = np.zeros(50000)
         ptr = 0  # ptr to current point in buffer
-        evts = 0
-        missed_evts = 0  # below threshold
+        (evts, missed_evts) = (0, 0)  # below threshold
 
-        check = 1
         keep_reading = True
 
         try:
-            # for evt in self.f:
             while keep_reading:
                 voltage_calibrated = self.event_voltage_calibrate(board, channels)
                 time_calibrated_bins = self.event_timing_calibrate(board, channels)
@@ -257,22 +262,12 @@ class CrockerSignalsCherenkov(object):
                 # det_trig, det_voltage_at_trig = self._detector_trigger(time_calibrated_bins, voltage_calibrated)
 
                 event_rise_times = t0_trigs[1] - t0_trigs[0]  # second row (0.9) - first row (0.1)
-
                 t0_pulses = event_rise_times.size
-
                 if t0_pulses == 0:
                     print("No pulses found in an event")
                     continue
-
                 rise_time_buffer[ptr:ptr+t0_pulses] = event_rise_times
                 rt_amp_buffer[ptr:ptr+t0_pulses] = t0_max_voltages
-
-                if check < 4:
-                    print("t0_pulses: ", t0_pulses)
-                    print("Event rise times: ", event_rise_times)
-                    print("Pulse maximums: ", t0_max_voltages)
-                    check += 1
-                    print("rt_amp_buffer (first 20) :", rt_amp_buffer[:20])
 
                 ptr += t0_pulses  # current index into buffer
                 evts += t0_pulses  # total number of events
@@ -283,9 +278,6 @@ class CrockerSignalsCherenkov(object):
                     rise_times += np.histogram(rise_time_buffer[:ptr], bins=rt_bins)[0]
                     amps += np.histogram(rt_amp_buffer[:ptr], bins=amp_bins)[0]
                     ptr = 0  # back to beginning of buffer
-                    print("Sum of rise_times hist counts: ", rise_times.sum())
-                    print("Sum of amps hist counts: ", amps.sum())
-
                 self.event = next(self.f)  # move to next event, stop iteration otherwise
 
         except StopIteration:
@@ -303,13 +295,88 @@ class CrockerSignalsCherenkov(object):
                 ax.set_xlabel(xlbl, fontsize=18)
                 ax.set_ylabel("counts", fontsize=18)
                 ax.tick_params(axis='both', labelsize=16)
-                # print("Sum of all counts: ", values.sum())
 
                 if log_scale:
                     ax.set_yscale('log')
 
             plt.show()
 
+    def t0_to_rf_and_detector(self, log_scale=False):
+        """Generates histogram of 10-90 rise times and amplitudes of t0 signal."""
+        board = self.board_ids[0]
+        channels = self.channels[board]
+        t0_frac = np.array([0.2])  # "CFD" for t0
+
+        amps, amp_bins = np.histogram([], bins=np.linspace(0, 0.2, num=2001))
+
+        t0_to_rf_times, t0_rf_bins = np.histogram([], bins=np.linspace(-22, 22, num=2001))
+        t0_to_det_times, t0_det_bins = np.histogram([], bins=np.linspace(-22, 22, num=2001))
+
+        t0_rf_time_buffer = np.zeros(50000)  # temp storage
+        t0_det_time_buffer = np.zeros(50000)
+        ptr_g, ptr_rf = 0, 0  # ptr to current point in buffer for gamma and rf, respectively
+        (evts, missed_evts) = (0, 0)  # below threshold
+
+        keep_reading = True
+
+        try:
+            while keep_reading:
+                voltage_calibrated = self.event_voltage_calibrate(board, channels)
+                time_calibrated_bins = self.event_timing_calibrate(board, channels)
+
+                crossings, slope_sign = self._rf_ref_points(time_calibrated_bins, voltage_calibrated)
+                t0_trigs, t0_max_voltages, _ = self._t0_ref_points(time_calibrated_bins,
+                                                                   voltage_calibrated, f=t0_frac)
+                det_trig, det_voltage_at_trig = self._detector_trigger(time_calibrated_bins, voltage_calibrated)
+
+                tgamma = (det_trig - crossings)[(np.abs(det_trig - crossings)).argmin()]  # gamma relative to closest RF
+                del_t = correlate_pulse_trains(t0_trigs, crossings[slope_sign < 0])
+                # t0 relative to negative slope crossing RF
+                t0refs = del_t.size  # how many t0-rf pairs exist
+
+                t0_det_time_buffer[ptr_g:ptr_g + 1] = tgamma
+                t0_rf_time_buffer[ptr_rf:ptr_rf + t0refs] = del_t
+
+                ptr_g += 1  # current index into  gamma buffer
+                ptr_rf += t0refs
+
+                evts += t0refs  # total number of events
+                missed_evts += (5 - t0refs)  # ideally 5 because of crocker RF period (44.4 ns)
+
+                if (ptr_rf + t0refs) > (t0_rf_time_buffer.size - 20):  # Next set of events close to end of buffer
+                    print("Appending to rf-t0 histograms. Full buffers.")
+                    t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t0_rf_bins)[0]
+                    ptr = 0  # back to beginning of buffer
+
+                if (ptr_g + 1) > (t0_det_time_buffer.size - 20):  # Next set of events close to end of buffer
+                    print("Appending to gamma histograms. Full buffers.")
+                    t0_to_det_times += np.histogram(t0_det_time_buffer[:ptr_g], bins=t0_det_bins)[0]
+                    ptr = 0  # back to beginning of buffer
+
+                self.event = next(self.f)  # move to next event, stop iteration otherwise
+
+        except StopIteration:
+            print("Reached last event!")
+            keep_reading = False
+            pass
+        finally:
+            # TODO: Empty buffers
+            print("Total pulses: ", evts)
+            print("Missed pulses: ", missed_evts)
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 12))  # ax1 -> rise_times, ax2 -> amplitudes
+            fig.suptitle("T0 Rise Time and Max Pulse Voltage", fontsize=22)
+            for ax, bin_edges, values, xlbl in zip((ax1, ax2), (rt_bins, amp_bins), (rise_times, amps),
+                                                   ("time (ns)", "max voltage (V)")):
+                bins = (bin_edges[1:] + bin_edges[:-1]) / 2
+                ax.step(bins, values, 'b-', where='mid')
+                ax.set_xlabel(xlbl, fontsize=18)
+                ax.set_ylabel("counts", fontsize=18)
+                ax.tick_params(axis='both', labelsize=16)
+
+                if log_scale:
+                    ax.set_yscale('log')
+
+            plt.show()
 
 def test_triggers(fname):
     tst = CrockerSignalsCherenkov(fname)
@@ -338,5 +405,5 @@ if __name__ == "__main__":
     # data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # LFS
     fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_file_name)
 
-    # test_triggers(fname)
-    t0_statistics(fname)
+    test_triggers(fname)
+    # t0_statistics(fname)
