@@ -265,7 +265,7 @@ def main():
     tst = CrockerSignalsCherenkov(fname, det=det)
     print(tst.f.board_ids)
 
-    skip = 102  # 102 has problems for LFS, 1200 for cherenkov
+    skip = 1  # 102 has problems for LFS, 1200 for cherenkov
     # skip = 105
     # 308 for LFS data set is a spike
     for _ in np.arange(skip):
