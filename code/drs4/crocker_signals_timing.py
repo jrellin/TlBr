@@ -412,7 +412,6 @@ class CrockerSignals(object):
         except StopIteration:
             print("Reached last event!")
             keep_reading = False
-            pass
         finally:
             print("Emptying remaining buffers.")
             t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t_bins)[0]
