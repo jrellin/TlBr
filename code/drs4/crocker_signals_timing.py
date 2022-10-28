@@ -1,6 +1,5 @@
 from binio import DRS4BinaryFile
 import numpy as np
-from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
 
 
@@ -63,7 +62,7 @@ def rise_time_points(time_bins, waveform, baseline, f=np.array([0.1, 0.2, 0.9]))
     return interp_trgs, max_sig  # relative max above baseline
 
 
-class CrockerSignalsCherenkov(object):
+class CrockerSignals(object):
 
     def __init__(self, filename, det="cherenkov"):
         self.f = DRS4BinaryFile(filename)
@@ -233,7 +232,6 @@ class CrockerSignalsCherenkov(object):
         if self.det_type == "cherenkov":
             trg_t, trg_v = linear_interpolate_trigger(det_time_bins, self.buffer, baseline, f=f)
         else:
-            # print("Leading edge!")
             trg_t, trg_v = leading_edge_trigger(det_time_bins, self.buffer, baseline, thr=0.1)
         return trg_t, trg_v
 
@@ -453,7 +451,7 @@ class CrockerSignalsCherenkov(object):
 
 
 def test_triggers(fname):
-    tst = CrockerSignalsCherenkov(fname)
+    tst = CrockerSignals(fname)
     print(tst.f.board_ids)
 
     skip = 508
@@ -466,13 +464,13 @@ def test_triggers(fname):
 
 
 def t0_statistics(fname):
-    t0data = CrockerSignalsCherenkov(fname)
+    t0data = CrockerSignals(fname)
     print(t0data.f.board_ids)
     t0data.t0_statistics()
 
 
 def t0_rf_det_delta_t(fname, det):
-    t0data = CrockerSignalsCherenkov(fname, det=det)
+    t0data = CrockerSignals(fname, det=det)
     print(t0data.f.board_ids)
     t0data.rf_to_t0_and_detector()
 
