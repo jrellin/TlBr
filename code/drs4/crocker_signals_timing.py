@@ -79,6 +79,13 @@ class CrockerSignals(object):
         # self.ch_names = {"rf": 1, "lfs": 2, "cherenkov": 3, "t0": 4}
         if det not in ("cherenkov", "lfs_en"):
             ValueError("det {d} not in required types: cherenkov, lfs_en".format(d=det))
+        if det == "cherenkov":
+            self.cable_delays = {1: 0, 2: 0, 3: 0, 4: 0}
+        else:  # must be lfs
+            # cable length delay measurement (difference was t0 in FIFO for LFS measurements)
+            # Channels:  {1: 'rf', 2: 'cherenkov', 3: 'lfs', 4: 't0'}  # 2 and 3 were swapped
+            # Rise Time Maximums:  {1: 86.725, 2: 87.42500000000001, 3: 93.305, 4: 99.535}
+            self.cable_delays = {1: 0, 2: 6.58, 3: 0.7, 4: 12.81}
         self.det_type = det
         self.ch_names = {"rf": 1, "lfs": 2, det: 3, "t0": 4}
 
@@ -125,7 +132,9 @@ class CrockerSignals(object):
             self.ch_time_bins[:] = np.cumsum(np.concatenate((np.array([0]), self.time_widths[board][chn][trg_cell:1023],
                                                              self.time_widths[board][chn][:trg_cell])))
             ch_0cell = self.ch_time_bins[(1024 - trg_cell) % 1024]
-            self.ch_time_bins += (ref_ch_0cell - ch_0cell)
+            # self.ch_time_bins += (ref_ch_0cell - ch_0cell)
+            # Testing
+            self.ch_time_bins += (ref_ch_0cell - ch_0cell) - self.cable_delays[chn]
             time_calibrated[chn] = self.ch_time_bins.copy()
 
         return time_calibrated
