@@ -4,6 +4,7 @@ from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
 # This file was to test trigger method implementation. Analysis done in crocker_signals_timing
 
+
 def linear_interpolate_trigger(time_bins, waveform, baseline, f=0.2):
     """Assumes positive polarity signals"""
     wf = waveform - baseline
@@ -15,6 +16,12 @@ def linear_interpolate_trigger(time_bins, waveform, baseline, f=0.2):
     interp_t = t[ati-1] + ((max_sig_fv - wf[ati-1])/m)
 
     return interp_t, max_sig_fv + baseline  # add back baseline for plotting
+
+
+def leading_edge_trigger(time_bins, waveform, baseline, thr=0.1):
+    """Leading edge trigger above baseline with threshold in V"""
+    wf = waveform - baseline
+    return time_bins[np.argmax(wf > thr)], thr + baseline
 
 
 def rise_time_points(time_bins, waveform, baseline, f=np.array([0.1, 0.2, 0.9])):
@@ -37,7 +44,7 @@ def rise_time_points(time_bins, waveform, baseline, f=np.array([0.1, 0.2, 0.9]))
 
 class CrockerSignalsCherenkov(object):
 
-    def __init__(self, filename):
+    def __init__(self, filename, det="cherenkov"):  # cherenkov or lfs_en
         self.f = DRS4BinaryFile(filename)
         # aliases
         self.n_boards = self.f.num_boards
@@ -49,7 +56,10 @@ class CrockerSignalsCherenkov(object):
         self.ch_time_bins = np.zeros(1024)  # temporary working memory for time calibration data
         self.buffer = np.zeros(1024)  # temporary working memory for voltage calibration data
         # self.ch_names = ["rf", "lfs", "cherenkov", "t0"]
-        self.ch_names = {"rf": 1, "lfs": 2, "cherenkov": 3, "t0": 4}
+        if det not in ("cherenkov", "lfs_en"):
+            ValueError("det {d} not in required types: cherenkov, lfs_en".format(d=det))
+        self.det_type = det  # really trigger channel
+        self.ch_names = {"rf": 1, "lfs": 2, det: 3, "t0": 4}
 
     def event_voltage_calibrate(self, board, chns):
         voltage_calibrated = {}
@@ -60,23 +70,28 @@ class CrockerSignalsCherenkov(object):
                                       (self.event.range_center / 1000) - 0.5
 
             if "lfs_en" in self.ch_names.keys():  # remove spikes
-                if (np.argmax(voltage_calibrated[chn]) < 10) & (np.max(voltage_calibrated[chn]) > 0.5):
+                first_10 = wf_adc_to_v[:10]
+                last_10 = wf_adc_to_v[-10:]
+                if np.sum(first_10 > 0.5):  # if any larger than 0.5
                     # spike near beginning of trace, exceeds RF amplitude limits
-                    first_10 = wf_adc_to_v[:10]
+                    print("Spike at beginning in channel {c}".format(c=chn))
+                    # first_10 = wf_adc_to_v[:10]
                     try:
-                        wf_adc_to_v[:10] = np.mean(first_10 < 0.5)
+                        wf_adc_to_v[:10] = np.mean(first_10[first_10 < 0.5])
                     except:
                         print("Wide spike found at beginning of a {c} trace!".format(c=self.ch_names[chn]))
-                        wf_adc_to_v[:10] = np.mean(wf_adc_to_v[10:20] < 0.5)
+                        wf_adc_to_v[:10] = np.mean((wf_adc_to_v[10:20])[wf_adc_to_v[10:20] < 0.5])
 
-                if (np.argmax(voltage_calibrated[chn]) >= (wf_adc_to_v.size - 10)) & (np.max(voltage_calibrated[chn]) > 0.5):
+                # if (np.argmax(wf_adc_to_v) >= (wf_adc_to_v.size - 10)) & (np.max(wf_adc_to_v) > 0.5):
+                if np.sum(last_10 > 0.5):  # if any larger than 0.5
                     # spike near end of trace, exceeds RF amplitude limits
+                    print("Spike at end of channel {c}".format(c=chn))
                     last_10 = wf_adc_to_v[-10:]
                     try:
-                        wf_adc_to_v[-10:] = np.mean(last_10 < 0.5)
+                        wf_adc_to_v[-10:] = np.mean(last_10[last_10 < 0.5])
                     except:
                         print("Wide spike found at end of a {c} trace!".format(c=self.ch_names[chn]))
-                        wf_adc_to_v[-10:] = np.mean(wf_adc_to_v[-20:-10] < 0.5)
+                        wf_adc_to_v[-10:] = np.mean((wf_adc_to_v[-20:-10])[wf_adc_to_v[-20:-10] < 0.5])
             voltage_calibrated[chn] = wf_adc_to_v
         return voltage_calibrated
 
@@ -123,7 +138,10 @@ class CrockerSignalsCherenkov(object):
         # 30 samples before max, 120 is after max to "baseline", 0.01 V (10 mV) threshold?
         # mask out 100 samples before and after
         t0_time_bins = time_calibrated_bins[self.ch_names["t0"]]
-        self.buffer[:] = -voltage_calibrations[self.ch_names["t0"]]
+        polarity = -1  # cherenkov
+        if self.det_type == "lfs_en":
+            polarity = 1
+        self.buffer[:] = polarity * voltage_calibrations[self.ch_names["t0"]]
 
         t0_ref_time = np.ones(5) * -10
         t0_ref_voltage = np.ones(5) * -10
@@ -154,9 +172,16 @@ class CrockerSignalsCherenkov(object):
             if mask_right_idx > (self.buffer.size-1):  # pulse near right edge
                 mask_right_idx = self.buffer.size  # this is so confusing
 
+            # above already checks for left or right edge
+
+            if (n_pulse > 1) & (np.sum(np.abs(t0_time_bins[next_trigger_idx] - t0_ref_time[:n_pulse - 1]) < 35) > 0):
+                print("Saw this!")
+                find_pulses = False
+                continue  # This guesses that triggering on noise between pulses, so stop
+
             if (next_max_value - baseline) < thr:  # no more peaks above threshold, time to stop
                 find_pulses = False
-                continue
+                continue  # effectively a break
 
             window_signal_voltage = self.buffer[mask_left_idx:mask_right_idx]
             window_signal_tbins = t0_time_bins[mask_left_idx:mask_right_idx]
@@ -174,7 +199,11 @@ class CrockerSignalsCherenkov(object):
 
     def _detector_trigger(self, time_calibrated_bins, voltage_calibrations, f=0.2):
         """cherenkov or lfs_en channel name"""
-        det_name = [key for key in self.ch_names.keys() if key not in ('rf', 'lfs', 't0')][0]
+        # det_name = [key for key in self.ch_names.keys() if key not in ('rf', 'lfs', 't0')][0]
+        if self.det_type == 'lfs_en':
+            det_name = 'lfs'
+        else:
+            det_name = 'cherenkov'
         det_time_bins = time_calibrated_bins[self.ch_names[det_name]]
         self.buffer[:] = voltage_calibrations[self.ch_names[det_name]]
         print("det name: ", det_name)
@@ -183,12 +212,16 @@ class CrockerSignalsCherenkov(object):
         if det_name == "cherenkov":
             baseline = np.mean(self.buffer[100:200])
             bl_edge = 100
-        elif det_name == "lfs_en":
-            baseline = np.mean(self.buffer[100:200])
+        else: # lfs
+            baseline = np.mean(self.buffer[20:100])
             bl_edge = 100
 
         self.buffer[:bl_edge] = np.min(self.buffer)
-        trg_t, trg_v = linear_interpolate_trigger(det_time_bins, self.buffer, baseline, f=f)
+        if det_name == "cherenkov":
+            trg_t, trg_v = linear_interpolate_trigger(det_time_bins, self.buffer, baseline, f=f)
+        else:
+            print("Leading edge!")
+            trg_t, trg_v = leading_edge_trigger(det_time_bins, self.buffer, baseline, thr=0.1)
         return trg_t, trg_v
 
     def test_rf_t0_points(self):
@@ -204,10 +237,11 @@ class CrockerSignalsCherenkov(object):
         fig, ax = plt.subplots(1, 1)
         for chn in channels:  # voltage and plotting
             polarity = 1
-            if chn == self.ch_names["t0"]:
-                polarity = -1
+            if (chn == self.ch_names["t0"]) & (self.det_type == "cherenkov"):
+                polarity = -1  # needs to be flipped for cherenkov, not flipped for lfs trigger
             ax.plot(time_calibrated_bins[chn], voltage_calibrated[chn] * polarity)
             # ax.plot(voltage_calibrated[chn] * polarity)
+        print("det_trig: ", det_trig)
         ax.plot(crossings, np.zeros(crossings.size), "kX")
         ax.plot(t0_trigs, t0_voltage_at_trig, "o")
         ax.plot(det_trig, det_voltage_at_trig, "8")
@@ -220,18 +254,25 @@ def main():
     import os
     from pathlib import Path
 
-    data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"  # cherenkov
-    # data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # LFS
+    # data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"  # cherenkov
+    # det = "cherenkov"
+    data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # LFS
+    det = "lfs_en"
+
+    # cherenkov triggering channels: [rf, lfs_timing, cherenkov, t0]
+    # LFS triggering channels: [rf, lfs_timing, lfs_energy, t0]
     fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_file_name)
-    tst = CrockerSignalsCherenkov(fname)
+    tst = CrockerSignalsCherenkov(fname, det=det)
     print(tst.f.board_ids)
 
-    skip = 308
+    skip = 102  # 102 has problems for LFS, 1200 for cherenkov
+    # skip = 105
+    # 308 for LFS data set is a spike
     for _ in np.arange(skip):
-        event = next(tst.f)
-        # print(event.timestamp)
+        tst.event = next(tst.f)
+        # print(tst.event.timestamp)
 
-    event = next(tst.f)
+    tst.event = next(tst.f)
     tst.test_rf_t0_points()
 
 

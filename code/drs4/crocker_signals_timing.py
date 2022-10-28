@@ -60,7 +60,7 @@ def rise_time_points(time_bins, waveform, baseline, f=np.array([0.1, 0.2, 0.9]))
 
 class CrockerSignalsCherenkov(object):
 
-    def __init__(self, filename):
+    def __init__(self, filename, det="cherenkov"):
         self.f = DRS4BinaryFile(filename)
         # aliases
         self.n_boards = self.f.num_boards
@@ -72,7 +72,11 @@ class CrockerSignalsCherenkov(object):
         self.ch_time_bins = np.zeros(1024)  # temporary working memory for time calibration data
         self.buffer = np.zeros(1024)  # temporary working memory for voltage calibration data
         # self.ch_names = ["rf", "lfs", "cherenkov", "t0"]
-        self.ch_names = {"rf": 1, "lfs": 2, "cherenkov": 3, "t0": 4}
+        # self.ch_names = {"rf": 1, "lfs": 2, "cherenkov": 3, "t0": 4}
+        if det not in ("cherenkov", "lfs_en"):
+            ValueError("det {d} not in required types: cherenkov, lfs_en".format(d=det))
+        self.det_type = det
+        self.ch_names = {"rf": 1, "lfs": 2, det: 3, "t0": 4}
 
     def event_voltage_calibrate(self, board, chns):
         voltage_calibrated = {}
@@ -197,16 +201,16 @@ class CrockerSignalsCherenkov(object):
 
     def _detector_trigger(self, time_calibrated_bins, voltage_calibrations, f=0.2):
         """cherenkov or lfs_en channel name"""
-        det_name = [key for key in self.ch_names.keys() if key not in ('rf', 'lfs', 't0')][0]
-        det_time_bins = time_calibrated_bins[self.ch_names[det_name]]
-        self.buffer[:] = voltage_calibrations[self.ch_names[det_name]]
+        # det_name = [key for key in self.ch_names.keys() if key not in ('rf', 'lfs', 't0')][0]
+        det_time_bins = time_calibrated_bins[self.ch_names[self.det_type]]
+        self.buffer[:] = voltage_calibrations[self.ch_names[self.det_type]]
         # print("det name: ", det_name)
         baseline = 0
         bl_edge = 100
-        if det_name == "cherenkov":
+        if self.det_type == "cherenkov":
             baseline = np.mean(self.buffer[100:200])
             bl_edge = 100
-        elif det_name == "lfs_en":
+        elif self.det_type == "lfs_en":
             baseline = np.mean(self.buffer[100:200])
             bl_edge = 100
 
@@ -317,16 +321,20 @@ class CrockerSignalsCherenkov(object):
             plt.show()
 
     def rf_to_t0_and_detector(self, log_scale=False):
-        """Generates histogram of 10-90 rise times and amplitudes of t0 signal."""
+        """Generates histograms of t0 - rf, detector - rf, and detector - t0"""
+        # TODO: Detector - t0
         board = self.board_ids[0]
         channels = self.channels[board]
         t0_frac = np.array([0.2])  # "CFD" for t0
 
-        t0_to_rf_times, t0_rf_bins = np.histogram([], bins=np.linspace(-22, 22, num=2001))
-        t0_to_det_times, t0_det_bins = np.histogram([], bins=np.linspace(-22, 22, num=2001))
+        t0_to_rf_times, t_bins = np.histogram([], bins=np.linspace(-22, 22, num=1001))
+        det_to_rf_times, _ = np.histogram([], bins=t_bins)
+        det_to_t0_times, _ = np.histogram([], bins=t_bins)
 
         t0_rf_time_buffer = np.zeros(50000)  # temp storage
-        t0_det_time_buffer = np.zeros(50000)
+        det_rf_time_buffer = np.zeros(50000)
+        det_t0_time_buffer = np.zeros(50000)  # add
+
         ptr_g, ptr_rf = 0, 0  # ptr to current point in buffer for gamma and rf, respectively
         (evts, missed_evts) = (0, 0)  # below threshold
 
@@ -342,12 +350,23 @@ class CrockerSignalsCherenkov(object):
                                                                    voltage_calibrated, f=t0_frac)
                 det_trig, det_voltage_at_trig = self._detector_trigger(time_calibrated_bins, voltage_calibrated)
 
-                tgamma = (det_trig - crossings)[(np.abs(det_trig - crossings)).argmin()]  # gamma relative to closest RF
+                # print("det trig: ", det_trig)
+                # print("t0_trigs: ", t0_trigs)
+                # print("t0_trigs.shape: ", t0_trigs.shape)
+                # print("t0_trigs[0]]: ", t0_trigs[0])
+                # print("subtraction: ", det_trig - t0_trigs)
+                # print("abs value of subtraction: ", np.abs(det_trig - t0_trigs).argmin())
+                # print("argmin: ", (np.abs(det_trig - t0_trigs)).argmin())
+
+                tgamma_to_rf = (det_trig - crossings)[(np.abs(det_trig - crossings)).argmin()]  # gamma relative to closest RF
+                tgamma_to_t0 = (det_trig - t0_trigs[0])[(np.abs(det_trig - t0_trigs[0])).argmin()]
+                # TODO: fix need to have to use t0_trigs[0] instead of t0_trigs
                 del_t = correlate_pulse_trains(t0_trigs, crossings[slope_sign < 0])
                 # t0 relative to negative slope crossing RF
                 t0refs = del_t.size  # how many t0-rf pairs exist
 
-                t0_det_time_buffer[ptr_g:ptr_g + 1] = tgamma
+                det_rf_time_buffer[ptr_g:ptr_g + 1] = tgamma_to_rf
+                det_t0_time_buffer[ptr_g:ptr_g + 1] = tgamma_to_t0
                 t0_rf_time_buffer[ptr_rf:ptr_rf + t0refs] = del_t
 
                 ptr_g += 1  # current index into  gamma buffer
@@ -358,12 +377,13 @@ class CrockerSignalsCherenkov(object):
 
                 if (ptr_rf + t0refs) > (t0_rf_time_buffer.size - 20):  # Next set of events close to end of buffer
                     print("Appending to rf-t0 histograms. Full rf-t0 buffers.")
-                    t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t0_rf_bins)[0]
+                    t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t_bins)[0]
                     ptr_rf = 0  # back to beginning of buffer
 
-                if (ptr_g + 1) > (t0_det_time_buffer.size - 20):  # Next set of events close to end of buffer
+                if (ptr_g + 1) > (det_rf_time_buffer.size - 20):  # Next set of events close to end of buffer
                     print("Appending to gamma histograms. Full gamma buffers.")
-                    t0_to_det_times += np.histogram(t0_det_time_buffer[:ptr_g], bins=t0_det_bins)[0]
+                    det_to_rf_times += np.histogram(det_rf_time_buffer[:ptr_g], bins=t_bins)[0]
+                    det_to_t0_times += np.histogram(det_t0_time_buffer[:ptr_g], bins=t_bins)[0]
                     ptr_g = 0  # back to beginning of buffer
 
                 self.event = next(self.f)  # move to next event, stop iteration otherwise
@@ -374,19 +394,26 @@ class CrockerSignalsCherenkov(object):
             pass
         finally:
             print("Emptying remaining buffers.")
-            t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t0_rf_bins)[0]
-            t0_to_det_times += np.histogram(t0_det_time_buffer[:ptr_g], bins=t0_det_bins)[0]
+            t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t_bins)[0]
+            det_to_rf_times += np.histogram(det_rf_time_buffer[:ptr_g], bins=t_bins)[0]
+            det_to_t0_times += np.histogram(det_t0_time_buffer[:ptr_g], bins=t_bins)[0]
 
             print("Total pulses: ", evts)
             print("Missed pulses: ", missed_evts)
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 12))  # ax1 -> rise_times, ax2 -> amplitudes
-            fig.suptitle("RF to T0 and Detector $\Delta$T", fontsize=22)
-            for ax, bin_edges, values, xlbl, title in zip((ax1, ax2), (t0_rf_bins, t0_det_bins),
-                                                          (t0_to_rf_times, t0_to_det_times),
-                                                          ("$\Delta$T (ns)", "$\Delta$T (ns)"),
-                                                          ("$T_{t0}-T_{rf}$", "$T_{\gamma}-T_{rf}$")):
+            if "cherenkov" in self.ch_names.keys():
+                det = "Cherenkov"
+            else:  # LFS
+                det = "LFS"
+            fig.suptitle(det + " Detector, RF, and T0 $\Delta$T", fontsize=22)
+
+            for ax, bin_edges, values, \
+                xlbl, title, plot_label in zip((ax1, ax2), (t_bins, t_bins),
+                                                (t0_to_rf_times, det_to_rf_times), ("$\Delta$T (ns)", "$\Delta$T (ns)"),
+                                                ("$T_{t0}-T_{rf}$", "$\Delta$T with RF or T0"),
+                                                ("t0 to RF", "$T_{\gamma}-T_{rf}$")):
                 bins = (bin_edges[1:] + bin_edges[:-1]) / 2
-                ax.step(bins, values, 'b-', where='mid')
+                ax.step(bins, values, 'b-', where='mid', label=plot_label)
                 ax.set_xlabel(xlbl, fontsize=18)
                 ax.set_ylabel("counts", fontsize=18)
                 ax.set_title(title, fontsize=18)
@@ -395,7 +422,12 @@ class CrockerSignalsCherenkov(object):
                 if log_scale:
                     ax.set_yscale('log')
 
+            ax2.step((t_bins[1:]+t_bins[:-1])/2, det_to_t0_times, 'g-', where='mid', label="$T_{\gamma}-T_{t0}$")
+            ax2.legend(loc='best')
+            # TODO: ax.step(det to RF)
+
             plt.show()
+
 
 def test_triggers(fname):
     tst = CrockerSignalsCherenkov(fname)
