@@ -388,8 +388,17 @@ class CrockerSignals(object):
                     print("argmin: ", (np.abs(det_trig - t0_trigs[0])).argmin())
                     check += 1
 
-                tgamma_to_rf = (det_trig - crossings)[(np.abs(det_trig - crossings)).argmin()]  # gamma relative to closest RF
-                tgamma_to_t0 = (det_trig - t0_trigs[0])[(np.abs(det_trig - t0_trigs[0])).argmin()]
+                rf_ref_idx = (np.abs(det_trig - crossings)).argmin()
+                t0_ref_idx = (np.abs(det_trig - t0_trigs[0])).argmin()
+                # rf_to_t0 = t0_trigs[0][t0_ref_idx] - crossings[rf_ref_idx]
+                tgamma_to_rf = (det_trig - crossings)[rf_ref_idx]  # gamma relative to closest RF
+                tgamma_to_t0 = (det_trig - t0_trigs[0])[t0_ref_idx]  # + rf_to_t0
+
+                if (tgamma_to_t0 > 2) & (self.det_type == "lfs_en"):
+                    # Shift issue
+                    self.event = next(self.f)
+                    continue
+
                 # TODO: fix need to have to use t0_trigs[0] instead of t0_trigs
                 del_t = correlate_pulse_trains(t0_trigs, crossings[slope_sign < 0])
                 # t0 relative to negative slope crossing RF
@@ -451,7 +460,13 @@ class CrockerSignals(object):
                 if log_scale:
                     ax.set_yscale('log')
 
-            ax2.step((t_bins[1:]+t_bins[:-1])/2, det_to_t0_times, 'g-', where='mid', label="$T_{\gamma}-T_{t0}$")
+            t_centers = 0.5 * (t_bins[1:] + t_bins[:-1])
+            if self.det_type == "lfs_en":
+                t_centers += 12.5
+            else:
+                t_centers += 7.5
+
+            ax2.step(t_centers, det_to_t0_times, 'g-', where='mid', label="$T_{\gamma}-T_{t0}$")
             ax2.legend(loc='best')
             # TODO: ax.step(det to RF)
 
@@ -487,10 +502,10 @@ if __name__ == "__main__":
     import os
     from pathlib import Path
 
-    # data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"  # cherenkov
-    # det = "cherenkov"
-    data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # LFS
-    det = "lfs_en"
+    data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"  # cherenkov
+    det = "cherenkov"
+    # data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # LFS
+    # det = "lfs_en"
     fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_file_name)
 
     # test_triggers(fname)
