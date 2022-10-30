@@ -11,7 +11,26 @@ def linear_interpolate_trigger(time_bins, waveform, baseline, f=np.array([0.2]))
 
     ati = np.argmax(np.sign(wf - max_sig_fv))  # (a)fter (t)rigger (i)ndex
     m = (wf[ati] - wf[ati-1]) / (t[ati]-t[ati-1])  # slope
-    interp_t = t[ati-1] + ((max_sig_fv - wf[ati-1])/m)
+    if m != 0:
+        interp_t = t[ati-1] + ((max_sig_fv - wf[ati-1])/m)
+    else:
+        interp_t = t[ati - 1]  # nothing to interp
+
+    return interp_t, max_sig_fv + baseline  # add back baseline for plotting
+
+
+def linear_interpolate_trigger2(time_bins, waveform, baseline, f=np.array([0.2])):
+    """Assumes positive polarity signals. Trying to fix spike issue seen in lf2 p2 1200 skip trigger. Used in crocker_energy_timing.py"""
+    wf = waveform - baseline
+    t = time_bins
+    max_sig_fv = f * np.max(wf)
+
+    ati = np.argmax(wf) - np.argmin(wf[:np.argmax(wf)][::-1] >= max_sig_fv)
+    m = (wf[ati] - wf[ati-1]) / (t[ati]-t[ati-1])  # slope
+    if m != 0:
+        interp_t = t[ati-1] + ((max_sig_fv - wf[ati-1])/m)
+    else:
+        interp_t = t[ati - 1]  # nothing to interp
 
     return interp_t, max_sig_fv + baseline  # add back baseline for plotting
 
@@ -56,3 +75,35 @@ def correlate_pulse_trains(t1, t2):
         print("time_pairs: ", time_pairs)
         print("time_pairs shape: ", time_pairs.shape)
     return del_t  # hopefully the closest pairs of values
+
+
+def histogram_FWHM(time_bin_edges, counts, outside_pts=0):
+    """Finds FHWM of a time histogram, need time bins and counts. Outside points refers to how many points outside
+    before and after 0.5 crossings to include for linear fit"""
+    from numpy.polynomial import polynomial as P
+    time_bins = 0.5 * (time_bin_edges[1:] + time_bin_edges[:-1])
+
+    op = int(outside_pts)  # alias
+    h_max = np.max(counts)
+    h_amax = np.amax(counts)
+    lo_idx = h_amax - np.argmin(counts[:h_amax][::-1] >= 0.5 * h_max)  # just after threshold before max
+    hi_idx = h_amax + np.argmin(counts[h_amax:] >= 0.5 * h_max)  # just before threshold past max
+
+    rise_t = np.array([time_bins[lo_idx-1 - op], time_bins[lo_idx + op]])
+    fall_t = np.array([time_bins[hi_idx - op], time_bins[hi_idx+1 + op]])
+
+    lo_counts = np.array([counts[lo_idx-1 - op], counts[lo_idx + op]])  # points before and after threshold crossing
+    hi_counts = np.array([counts[hi_idx - op], counts[hi_idx+1 + op]])
+
+    r_fit = P.polyfit(rise_t, lo_counts, 1, w=1/np.sqrt(lo_counts))  # return [c0, c1] for y = c0 + x * c1
+    f_fit = P.polyfit(fall_t, hi_counts, 1, w=1/np.sqrt(hi_counts))
+
+    # y= c0 + c1 * x -> (y-c0)/c1 = x, where y = 0.5 * y_max
+
+    r_t_interp = ((0.5 * h_max) - r_fit[0])/r_fit[1]
+    f_t_interp = ((0.5 * h_max) - f_fit[0])/f_fit[1]
+
+    fwhm = f_t_interp - r_t_interp
+
+    return fwhm
+

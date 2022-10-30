@@ -2,13 +2,14 @@ from binio import DRS4BinaryFile
 import numpy as np
 import matplotlib.pyplot as plt
 from crocker_utils import *
-# nearly identical to lfs version, but different plot settings to keep them straight
+# nearly identical to crocker_signals_timing_lfs.py, but 2D energy-time plots where time is just a projection
 # working on: 10/29
 
 
 class CrockerSignals(object):
 
-    def __init__(self, filename, det="cherenkov"):  # cherenkov or lfs_en
+    def __init__(self, filename):  # cherenkov or lfs_en
+        self.filename = filename
         self.f = DRS4BinaryFile(filename)
         # aliases
         self.n_boards = self.f.num_boards
@@ -20,14 +21,9 @@ class CrockerSignals(object):
         self.ch_time_bins = np.zeros(1024)  # temporary working memory for time calibration data
         self.buffer = np.zeros(1024)  # temporary working memory for voltage calibration data
         # self.ch_names = ["rf", "lfs", "cherenkov", "t0"]
-        if det not in ("cherenkov", "lfs_en"):
-            ValueError("det {d} not in required types: cherenkov, lfs_en".format(d=det))
-        if det == "cherenkov":
-            self.cable_delays = {1: 0, 2: 6.58, 3: 0.7, 4: 8.21}  # 8.81 might be money
-        else:  # must be lfs
-            self.cable_delays = {1: 0, 2: 6.58, 3: 0.7, 4: 24.9}  # 24.81 is money
-        self.det_type = det  # really trigger channel
-        self.ch_names = {"rf": 1, "lfs": 2, det: 3, "t0": 4}
+        self.cable_delays = {1: 0, 2: 6.58, 3: 0.7, 4: 25.1}  # 24.81 is money, LFS only for this file
+        self.det_type = "lfs_en"  # really trigger channel
+        self.ch_names = {"rf": 1, "lfs": 2, "lfs_en": 3, "t0": 4}
 
     def event_voltage_calibrate(self, board, chns, verbose=False):
         voltage_calibrated = {}
@@ -147,7 +143,8 @@ class CrockerSignals(object):
             window_signal_voltage = self.buffer[mask_left_idx:mask_right_idx]
             window_signal_tbins = t0_time_bins[mask_left_idx:mask_right_idx]
 
-            trg_t, trg_v = linear_interpolate_trigger(window_signal_tbins, window_signal_voltage, baseline, f=f)
+            # trg_t, trg_v = linear_interpolate_trigger(window_signal_tbins, window_signal_voltage, baseline, f=f)
+            trg_t, trg_v = linear_interpolate_trigger2(window_signal_tbins, window_signal_voltage, baseline, f=f)
 
             t0_ref_time[n_pulse - 1] = trg_t  # python index by 0...
             t0_ref_voltage[n_pulse - 1] = trg_v
@@ -175,10 +172,99 @@ class CrockerSignals(object):
 
         self.buffer[:bl_edge] = np.min(self.buffer)
         if det_name == "cherenkov":
-            trg_t, trg_v = linear_interpolate_trigger(det_time_bins, self.buffer, baseline, f=f)
+            # trg_t, trg_v = linear_interpolate_trigger(det_time_bins, self.buffer, baseline, f=f)
+            trg_t, trg_v = linear_interpolate_trigger2(det_time_bins, self.buffer, baseline, f=f)
         else:
             trg_t, trg_v = leading_edge_trigger(det_time_bins, self.buffer, baseline, thr=0.1)
         return trg_t, trg_v
+
+    def _lfs_energy_signal(self, time_calibrated_bins, voltage_calibrations, method="peak", delay_corrected=False):
+        """Get lfs energy signal"""
+        # TODO: adjust baseline for integration method because of delays
+        if method not in ("peak", "integral"):
+            ValueError("{m} method not in allowed lfs energy methods: peak, integral")
+        det_name = "lfs_en"
+        det_time_bins = time_calibrated_bins[self.ch_names[det_name]]
+        self.buffer[:] = voltage_calibrations[self.ch_names[det_name]]
+        ds = delay_corrected * self.cable_delays[self.ch_names["lfs_en"]]
+        # (d)elay (s)hift from cables. If time_calibrated bins is shifted, have to shift back for finding baseline
+
+        peak_idx = np.argmax(self.buffer)
+        peak_time = det_time_bins[peak_idx]
+
+        if method == "peak":
+            baseline = np.mean(self.buffer[((det_time_bins + ds) > 1) & ((det_time_bins + ds) < 8)])  # 1-8 ns used for baseline
+            val = np.max(self.buffer-baseline)
+        else:  # integral
+            baseline_vals = self.buffer[((det_time_bins + ds) > 1) & ((det_time_bins + ds) < 8)]
+            baseline = np.mean(baseline_vals)
+            wf = self.buffer - baseline
+            threshold = 3 * np.std(baseline_vals) # positive polarity assumed
+            integration_low_idx = peak_idx - np.argmin(wf[:peak_idx][::-1] >= threshold)
+            integration_hi_idx = peak_idx + np.argmin(wf[peak_idx:] >= threshold)
+
+            intg_time_bins = det_time_bins[integration_low_idx+1:integration_hi_idx+1] \
+                             - det_time_bins[integration_low_idx:integration_hi_idx]
+            intg_vals = self.buffer[integration_low_idx:integration_hi_idx]
+            val = np.sum(intg_time_bins * intg_vals)  # volts * nanoseconds
+
+        return val, peak_time, baseline   # return integral/peak, argmax, baseline
+
+    def lfs_energy_spectrum(self, method="peak", log_scale=False):
+        """1D energy spectrum as a quick way to get energy. Use this method to test the amplitude/integration method"""
+        board = self.board_ids[0]
+        channels = self.channels[board]
+        # voltage_calibrated = self.event_voltage_calibrate(board, channels)
+        # time_calibrated_bins = self.event_timing_calibrate(board, channels)
+
+        if method == "peak":
+            en_counts, en_bins = np.histogram([], bins=np.linspace(0, 0.7, num=4097))
+            xlabel = "Peak Voltage"
+        else:  # "integral"
+            en_counts, en_bins = np.histogram([], bins=np.linspace(0, 30, num=4097))
+            xlabel = "Integral Value"
+
+        evt_buffer = np.zeros(50000)
+        evts = 0
+        ptr = 0
+        keep_reading = True
+        delay_correct = True  # cable delay
+
+        try:
+            while keep_reading:
+                voltage_calibrated = self.event_voltage_calibrate(board, channels)
+                time_calibrated_bins = self.event_timing_calibrate(board, channels, delay_correct=True)
+
+                val, peak_time, bl = \
+                    self._lfs_energy_signal(time_calibrated_bins, voltage_calibrated,
+                                            method=method, delay_corrected=delay_correct)
+                # val = integral or peak depending on method, peak_time = time of voltage peak, bl = baseline
+                evt_buffer[ptr] = val
+                ptr += 1
+                evts += 1
+                if ptr >= evt_buffer.size:
+                    print("Full energy buffer. Histogramming.")
+                    en_counts += np.histogram(evt_buffer[:ptr], bins=en_bins)[0]
+                    ptr = 0
+                self.event = next(self.f)
+        except StopIteration:
+            print("Reached last event!")
+        finally:
+            print("Emptying remaining buffers.")
+            print("Total Events: ", evts)
+            en_counts += np.histogram(evt_buffer[:ptr], bins=en_bins)[0]
+
+            fig, ax = plt.subplots(1, 1, figsize=(16, 12))  # ax1 -> rise_times, ax2 -> amplitudes
+            fig.suptitle("LFS {m} Energy Spectrum".format(m=method), fontsize=22)
+            ax.step(0.5 * (en_bins[1:] + en_bins[:-1]), en_counts, 'b-', where='mid')
+            ax.set_xlabel(xlabel, fontsize=18)
+            ax.set_ylabel("counts", fontsize=18)
+            ax.tick_params(axis='both', labelsize=16)
+
+            if log_scale:
+                ax.set_yscale('log')
+
+            plt.show()
 
     def test_rf_t0_points(self):
         board = self.board_ids[0]
@@ -189,6 +275,11 @@ class CrockerSignals(object):
         crossings, slope_sign = self._rf_ref_points(time_calibrated_bins, voltage_calibrated)
         t0_trigs, t0_voltage_at_trig = self._t0_ref_points(time_calibrated_bins, voltage_calibrated)
         det_trig, det_voltage_at_trig = self._detector_trigger(time_calibrated_bins, voltage_calibrated)
+        lfs_en_peak, lfs_en_peak_time, lfs_en_baseline = \
+            self._lfs_energy_signal(time_calibrated_bins, voltage_calibrated, method="peak")
+        # _lfs_energy_signal(self, time_calibrated_bins, voltage_calibrations, method="peak")
+        # return val, peak_idx, baseline
+        # "|"
         print("t0_trigs: ", t0_trigs)
 
         fig, ax = plt.subplots(1, 1)
@@ -201,18 +292,22 @@ class CrockerSignals(object):
         ax.plot(crossings, np.zeros(crossings.size), "kX")
         ax.plot(t0_trigs, t0_voltage_at_trig, "o")
         ax.plot(det_trig, det_voltage_at_trig, "8")
+        ax.plot(lfs_en_peak_time, lfs_en_peak + lfs_en_baseline, "x")
         ax.set_xlabel('time (ns)')
         ax.set_ylabel('amplitude (V)')
         plt.show()
 
-    def rf_to_t0_and_detector(self, log_scale=False):
+    def rf_to_t0_and_detector(self, log_scale=False, suppress_plots=False, save_histograms=False, save_fname=None):
         """Generates histograms of t0 - rf, detector - rf, and detector - t0"""
         board = self.board_ids[0]
         channels = self.channels[board]
         t0_frac = np.array([0.2])  # "CFD" for t0
 
-        t0_to_rf_times, t_bins = np.histogram([], bins=np.linspace(-4, 22, num=261))
-        det_to_rf_times, _ = np.histogram([], bins=t_bins)
+        # TODO: LFS only section changes
+        # t0_to_rf_times, t0_to_rf_bins = np.histogram([], bins=np.linspace(-1, 5, num=601)) position 2
+        t0_to_rf_times, t0_to_rf_bins = np.histogram([], bins=np.linspace(-1, 5, num=601))
+        # t0_to_rf_times, t_bins = np.histogram([], bins=np.linspace(-4, 44, num=1001))  # lfs original
+        det_to_rf_times, t_bins = np.histogram([], bins=np.linspace(-4, 44, num=1001))
         det_to_t0_times, _ = np.histogram([], bins=t_bins)
 
         t0_rf_time_buffer = np.zeros(50000)  # temp storage
@@ -237,12 +332,12 @@ class CrockerSignals(object):
                 t0_trigs, t0_max_voltages = self._t0_ref_points(time_calibrated_bins, voltage_calibrated, f=t0_frac)
                 det_trig, det_voltage_at_trig = self._detector_trigger(time_calibrated_bins, voltage_calibrated)
 
-                if check < 10:
-                    print("det trig: ", det_trig)
-                    print("t0_trigs: ", t0_trigs)
-                    print("t0_trigs.shape: ", t0_trigs.shape)
-                    print("subtraction: ", det_trig - t0_trigs)
-                    check += 1
+                # if check < 10:
+                #     print("det trig: ", det_trig)
+                #     print("t0_trigs: ", t0_trigs)
+                #     print("t0_trigs.shape: ", t0_trigs.shape)
+                #     print("subtraction: ", det_trig - t0_trigs)
+                #     check += 1
 
                 if (np.sum((det_trig - crossings) > 0) <= 0) or (np.sum((det_trig - t0_trigs) > 0) <= 0):
                     # No sensible nearest triggers
@@ -279,7 +374,7 @@ class CrockerSignals(object):
 
                 if (ptr_rf + t0refs) > (t0_rf_time_buffer.size - 20):  # Next set of events close to end of buffer
                     print("Appending to rf-t0 histograms. Full rf-t0 buffers.")
-                    t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t_bins)[0]
+                    t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t0_to_rf_bins)[0]
                     ptr_rf = 0  # back to beginning of buffer
 
                 if (ptr_g + 1) > (det_rf_time_buffer.size - 20):  # Next set of events close to end of buffer
@@ -295,7 +390,7 @@ class CrockerSignals(object):
             keep_reading = False
         finally:
             print("Emptying remaining buffers.")
-            t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t_bins)[0]
+            t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t0_to_rf_bins)[0]
             det_to_rf_times += np.histogram(det_rf_time_buffer[:ptr_g], bins=t_bins)[0]
             det_to_t0_times += np.histogram(det_t0_time_buffer[:ptr_g], bins=t_bins)[0]
 
@@ -310,7 +405,7 @@ class CrockerSignals(object):
             fig.suptitle(det + " Detector, RF, and T0 $\Delta$T", fontsize=22)
 
             for ax, bin_edges, values, \
-                xlbl, title, plot_label in zip((ax1, ax2), (t_bins, t_bins),
+                xlbl, title, plot_label in zip((ax1, ax2), (t0_to_rf_bins, t_bins),
                                                (t0_to_rf_times, det_to_rf_times), ("$\Delta$T (ns)", "$\Delta$T (ns)"),
                                                ("$T_{t0}-T_{rf}$", "$\Delta$T with RF or T0"),
                                                ("t0 to RF", "$T_{\gamma}-T_{rf}$")):
@@ -325,48 +420,81 @@ class CrockerSignals(object):
                     ax.set_yscale('log')
 
             t_centers = 0.5 * (t_bins[1:] + t_bins[:-1])
-            if self.det_type == "cherenkov":
-                t_centers += 0
+            # if self.det_type == "cherenkov":
+            #     t_centers += 0
 
             ax2.step(t_centers, det_to_t0_times, 'g-', where='mid', label="$T_{\gamma}-T_{t0}$")
             ax2.legend(loc='best')
-            plt.show()
+            if not suppress_plots:
+                plt.show()
+
+            if save_histograms:
+                if save_fname is None:
+                    save_fname = "histograms"
+                np.savez(save_fname, filename=self.filename,
+                         t0_to_rf_bins=t0_to_rf_bins, t0_to_rf_counts=t0_to_rf_times,
+                         det_to_ref_time_bins=t_bins,
+                         det_to_rf_counts=det_to_rf_times, det_to_t0_counts=det_to_t0_times)
 
 
-def test_triggers(fname, det):
-    tst = CrockerSignals(fname, det=det)
+def test_triggers(fname):  # no det field, only LFS files here
+    tst = CrockerSignals(fname)
     print(tst.f.board_ids)
 
-    skip = 1988
+    skip = 0 # 1200, 3210 with p2 is interesting spike
+    # 3206 with p2 illustrates possible edge case for recovering t0 pulses near edge
     for _ in np.arange(skip):
         tst.event = next(tst.f)
         # print(tst.event.timestamp)
 
+    n_test = 1
+
+    for _ in np.arange(n_test):
+        tst.test_rf_t0_points()
+        tst.event = next(tst.f)
+
     # tst.event = next(tst.f)
-    tst.test_rf_t0_points()
+    # tst.test_rf_t0_points()
 
 
-def t0_rf_det_delta_t(fname, det):
-    t0data = CrockerSignals(fname, det=det)
+def t0_rf_det_delta_t(fname): # no det field, only LFS files here
+    import os
+    base_fname = os.path.splitext(fname)[0]
+    print(base_fname)
+
+    save_histograms = False
+    t0data = CrockerSignals(fname)
     print(t0data.f.board_ids)
-    t0data.rf_to_t0_and_detector()
+    t0data.rf_to_t0_and_detector(save_histograms=save_histograms, save_fname=base_fname)
+
+
+def energy_spectrum(fname):
+    tst = CrockerSignals(fname)
+    print(tst.f.board_ids)
+
+    # method = "peak"
+    method = "integral"
+    tst.lfs_energy_spectrum(method=method, log_scale=False)
+    # lfs_energy_spectrum(self, method="peak", log_scale=False)
 
 
 def main():
     import os
     from pathlib import Path
 
-    data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"  # cherenkov
-    det = "cherenkov"
-    # data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # LFS
-    # det = "lfs_en"
+    # data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"  # cherenkov
+    # det = "cherenkov"
+    data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # p2 LFS
+    # data_file_name = "20221017_Crocker_31.6V_LFS_500pa_DualDataset_nim_amp_p8_v15.dat"  # p8 LFS
+    # det = "lfs_en"  # no det field for this file
 
     # cherenkov triggering channels: [rf, lfs_timing, cherenkov, t0]
     # LFS triggering channels: [rf, lfs_timing, lfs_energy, t0]
     fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_file_name)
 
-    # test_triggers(fname, det)
-    t0_rf_det_delta_t(fname, det)
+    test_triggers(fname)
+    # t0_rf_det_delta_t(fname)
+    # energy_spectrum(fname)
 
 
 if __name__ == "__main__":

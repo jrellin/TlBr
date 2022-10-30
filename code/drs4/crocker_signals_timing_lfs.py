@@ -3,11 +3,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from crocker_utils import *
 # nearly identical to cherenkov version, but different plot settings to keep them straight
+# working on: 10/29
 
 
 class CrockerSignals(object):
 
     def __init__(self, filename, det="cherenkov"):  # cherenkov or lfs_en
+        self.filename = filename
         self.f = DRS4BinaryFile(filename)
         # aliases
         self.n_boards = self.f.num_boards
@@ -22,9 +24,12 @@ class CrockerSignals(object):
         if det not in ("cherenkov", "lfs_en"):
             ValueError("det {d} not in required types: cherenkov, lfs_en".format(d=det))
         if det == "cherenkov":
+            # self.cable_delays = {1: 0, 2: 6.58, 3: 0.7, 4: 12.81}  # go back if lost
             self.cable_delays = {1: 0, 2: 6.58, 3: 0.7, 4: 12.81}
         else:  # must be lfs
-            self.cable_delays = {1: 0, 2: 6.58, 3: 0.7, 4: 24.9}  # 24.81 is money
+            print("LFS")
+            # self.cable_delays = {1: 0, 2: 6.58, 3: 0.7, 4: 24.9}  # 24.81 is money, this copy is if lost
+            self.cable_delays = {1: 0, 2: 6.58, 3: 0.7, 4: 25.1}  # 24.81 is money
         self.det_type = det  # really trigger channel
         self.ch_names = {"rf": 1, "lfs": 2, det: 3, "t0": 4}
 
@@ -204,14 +209,17 @@ class CrockerSignals(object):
         ax.set_ylabel('amplitude (V)')
         plt.show()
 
-    def rf_to_t0_and_detector(self, log_scale=False):
+    def rf_to_t0_and_detector(self, log_scale=False, suppress_plots=False, save_histograms=False, save_fname=None):
         """Generates histograms of t0 - rf, detector - rf, and detector - t0"""
         board = self.board_ids[0]
         channels = self.channels[board]
         t0_frac = np.array([0.2])  # "CFD" for t0
 
-        t0_to_rf_times, t_bins = np.histogram([], bins=np.linspace(-4, 44, num=1001))
-        det_to_rf_times, _ = np.histogram([], bins=t_bins)
+        # TODO: LFS only section changes
+        # t0_to_rf_times, t0_to_rf_bins = np.histogram([], bins=np.linspace(-1, 5, num=601)) position 2
+        t0_to_rf_times, t0_to_rf_bins = np.histogram([], bins=np.linspace(-1, 5, num=601))
+        # t0_to_rf_times, t_bins = np.histogram([], bins=np.linspace(-4, 44, num=1001))  # lfs original
+        det_to_rf_times, t_bins = np.histogram([], bins=np.linspace(-4, 44, num=1001))
         det_to_t0_times, _ = np.histogram([], bins=t_bins)
 
         t0_rf_time_buffer = np.zeros(50000)  # temp storage
@@ -236,12 +244,12 @@ class CrockerSignals(object):
                 t0_trigs, t0_max_voltages = self._t0_ref_points(time_calibrated_bins, voltage_calibrated, f=t0_frac)
                 det_trig, det_voltage_at_trig = self._detector_trigger(time_calibrated_bins, voltage_calibrated)
 
-                if check < 10:
-                    print("det trig: ", det_trig)
-                    print("t0_trigs: ", t0_trigs)
-                    print("t0_trigs.shape: ", t0_trigs.shape)
-                    print("subtraction: ", det_trig - t0_trigs)
-                    check += 1
+                # if check < 10:
+                #     print("det trig: ", det_trig)
+                #     print("t0_trigs: ", t0_trigs)
+                #     print("t0_trigs.shape: ", t0_trigs.shape)
+                #     print("subtraction: ", det_trig - t0_trigs)
+                #     check += 1
 
                 if (np.sum((det_trig - crossings) > 0) <= 0) or (np.sum((det_trig - t0_trigs) > 0) <= 0):
                     # No sensible nearest triggers
@@ -278,7 +286,7 @@ class CrockerSignals(object):
 
                 if (ptr_rf + t0refs) > (t0_rf_time_buffer.size - 20):  # Next set of events close to end of buffer
                     print("Appending to rf-t0 histograms. Full rf-t0 buffers.")
-                    t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t_bins)[0]
+                    t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t0_to_rf_bins)[0]
                     ptr_rf = 0  # back to beginning of buffer
 
                 if (ptr_g + 1) > (det_rf_time_buffer.size - 20):  # Next set of events close to end of buffer
@@ -294,7 +302,7 @@ class CrockerSignals(object):
             keep_reading = False
         finally:
             print("Emptying remaining buffers.")
-            t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t_bins)[0]
+            t0_to_rf_times += np.histogram(t0_rf_time_buffer[:ptr_rf], bins=t0_to_rf_bins)[0]
             det_to_rf_times += np.histogram(det_rf_time_buffer[:ptr_g], bins=t_bins)[0]
             det_to_t0_times += np.histogram(det_t0_time_buffer[:ptr_g], bins=t_bins)[0]
 
@@ -309,7 +317,7 @@ class CrockerSignals(object):
             fig.suptitle(det + " Detector, RF, and T0 $\Delta$T", fontsize=22)
 
             for ax, bin_edges, values, \
-                xlbl, title, plot_label in zip((ax1, ax2), (t_bins, t_bins),
+                xlbl, title, plot_label in zip((ax1, ax2), (t0_to_rf_bins, t_bins),
                                                (t0_to_rf_times, det_to_rf_times), ("$\Delta$T (ns)", "$\Delta$T (ns)"),
                                                ("$T_{t0}-T_{rf}$", "$\Delta$T with RF or T0"),
                                                ("t0 to RF", "$T_{\gamma}-T_{rf}$")):
@@ -329,14 +337,23 @@ class CrockerSignals(object):
 
             ax2.step(t_centers, det_to_t0_times, 'g-', where='mid', label="$T_{\gamma}-T_{t0}$")
             ax2.legend(loc='best')
-            plt.show()
+            if not suppress_plots:
+                plt.show()
+
+            if save_histograms:
+                if save_fname is None:
+                    save_fname = "histograms"
+                np.savez(save_fname, filename=self.filename,
+                         t0_to_rf_bins=t0_to_rf_bins, t0_to_rf_counts=t0_to_rf_times,
+                         det_to_ref_time_bins=t_bins,
+                         det_to_rf_counts=det_to_rf_times, det_to_t0_counts=det_to_t0_times)
 
 
 def test_triggers(fname, det):
     tst = CrockerSignals(fname, det=det)
     print(tst.f.board_ids)
 
-    skip = 1988
+    skip = 38
     for _ in np.arange(skip):
         tst.event = next(tst.f)
         # print(tst.event.timestamp)
@@ -346,9 +363,14 @@ def test_triggers(fname, det):
 
 
 def t0_rf_det_delta_t(fname, det):
+    import os
+    base_fname = os.path.splitext(fname)[0]
+    print(base_fname)
+
+    save_histograms = False
     t0data = CrockerSignals(fname, det=det)
     print(t0data.f.board_ids)
-    t0data.rf_to_t0_and_detector()
+    t0data.rf_to_t0_and_detector(save_histograms=save_histograms, save_fname=base_fname)
 
 
 def main():
@@ -357,7 +379,8 @@ def main():
 
     # data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"  # cherenkov
     # det = "cherenkov"
-    data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # LFS
+    data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # p2 LFS
+    # data_file_name = "20221017_Crocker_31.6V_LFS_500pa_DualDataset_nim_amp_p8_v15.dat"  # p8 LFS
     det = "lfs_en"
 
     # cherenkov triggering channels: [rf, lfs_timing, cherenkov, t0]

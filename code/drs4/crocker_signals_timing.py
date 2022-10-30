@@ -1,6 +1,7 @@
 from binio import DRS4BinaryFile
 import numpy as np
 import matplotlib.pyplot as plt
+# stopped working on 10/28
 
 
 def linear_interpolate_trigger(time_bins, waveform, baseline, f=0.2):
