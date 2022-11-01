@@ -19,7 +19,7 @@ def linear_interpolate_trigger(time_bins, waveform, baseline, f=np.array([0.2]))
     return interp_t, max_sig_fv + baseline  # add back baseline for plotting
 
 
-def linear_interpolate_trigger2(time_bins, waveform, baseline, f=np.array([0.2])):
+def linear_interpolate_trigger2(time_bins, waveform, baseline, f=np.array([0.2]), ret_max_instead=False):
     """Assumes positive polarity signals. Trying to fix spike issue seen in lf2 p2 1200 skip trigger. Used in crocker_energy_timing.py"""
     wf = waveform - baseline
     t = time_bins
@@ -32,6 +32,8 @@ def linear_interpolate_trigger2(time_bins, waveform, baseline, f=np.array([0.2])
     else:
         interp_t = t[ati - 1]  # nothing to interp
 
+    if ret_max_instead:
+        return interp_t, np.max(wf) + baseline  # add back baseline for plotting
     return interp_t, max_sig_fv + baseline  # add back baseline for plotting
 
 
@@ -85,9 +87,10 @@ def histogram_FWHM(time_bin_edges, counts, outside_pts=0):
 
     op = int(outside_pts)  # alias
     h_max = np.max(counts)
-    h_amax = np.amax(counts)
-    lo_idx = h_amax - np.argmin(counts[:h_amax][::-1] >= 0.5 * h_max)  # just after threshold before max
-    hi_idx = h_amax + np.argmin(counts[h_amax:] >= 0.5 * h_max)  # just before threshold past max
+    h_amax = np.argmax(counts)
+
+    lo_idx = h_amax - np.argmin(counts[:h_amax][::-1] >= (0.5 * h_max))  # just after threshold before max
+    hi_idx = h_amax + np.argmin(counts[h_amax:] >= (0.5 * h_max))  # just before threshold past max
 
     rise_t = np.array([time_bins[lo_idx-1 - op], time_bins[lo_idx + op]])
     fall_t = np.array([time_bins[hi_idx - op], time_bins[hi_idx+1 + op]])
@@ -105,5 +108,238 @@ def histogram_FWHM(time_bin_edges, counts, outside_pts=0):
 
     fwhm = f_t_interp - r_t_interp
 
-    return fwhm
+    # numpy.average(a, axis=None, weights=None, returned=False, *, keepdims=<no value>)
+    t_center = np.average(time_bins[lo_idx:hi_idx], weights=counts[lo_idx:hi_idx])
+    # counts above 50% max
+    t_center_err = 1/np.sqrt(counts[lo_idx:hi_idx].sum())
 
+    return fwhm, time_bins[h_amax], t_center, t_center_err  # fwhm, max position
+
+
+class ETImage(object):
+    """Used with crocker_energy_timing_det.py"""
+    def __init__(self, bin_edges):
+        """X axis is energy, y axis is time, range=[energy_range, time_range], bins=(energy_bins, time_bins))"""
+        img_hist, self.xedges, self.yedges = np.histogram2d([], [], bins=bin_edges)
+        self._img_hist = img_hist.T  # Transpose needed
+
+    def add_values_to_image(self, energy_vals, time_vals):
+        img_hist = np.histogram2d(energy_vals, time_vals, bins=[self.xedges, self.yedges])[0]
+        self._img_hist += img_hist.T
+
+    @property
+    def img(self):
+        return self._img_hist.copy()
+
+    @property
+    def bins(self):
+        return self.xedges, self.yedges  # energy, time
+
+
+def full_2D_plot(det_to_rf, det_to_t0, t0_to_rf_times, t0_to_rf_bins, detector="LFS", method="integral"):
+    """Plotting method for crocker_energy_timing_X.py files for generating 2D plots, 1D projections.
+    Det_to_rf and det_to_t0 are both ETImage objects. t0_to_rf_times and t0_to_ref_bins are histogram counts,
+    and bin edges, respectively. Method refers to the method to get the energy value of the detector."""
+    import matplotlib.pyplot as plt
+
+    drf_img, (drf_en_bins, drf_t_bins) = det_to_rf.img, det_to_rf.bins
+    dt0_img, (dt0_en_bins, dt0_t_bins) = det_to_t0.img, det_to_t0.bins
+
+    cbar_min, cbar_max = np.min([drf_img.min(), dt0_img.min()]), np.max([drf_img.max(), dt0_img.max()])
+
+    fig1, (ax11, ax12, ax13) = plt.subplots(1, 3, figsize=(16, 12))  # 2 2D energy time plots, 1D energy plot
+    fig2, (ax21, ax22) = plt.subplots(1, 2, figsize=(16, 12))  # 2 1D time axis projections, 1 has det_to_rf and det_to_t0
+
+    titles = ("{d} to RF Energy-Time Histogram".format(d=detector), "{d} to t0 Energy-Time Histogram".format(d=detector))
+
+    for ax, img, e_bins, t_bins, title in zip((ax11, ax12), (drf_img, dt0_img), (drf_en_bins, dt0_en_bins),
+                                          (drf_t_bins, dt0_t_bins), titles):
+        en_extent = (e_bins[0], e_bins[-1])
+        t_extent = (t_bins[0], t_bins[-1])
+        img_obj = ax.imshow(img, cmap='magma_r', origin='lower', interpolation='none',
+                        extent=np.append(en_extent, t_extent), aspect='auto')
+        ax.set_xlabel("Energy (units arb.) ", fontsize=18)
+        ax.set_ylabel("$\Delta$T (ns)", fontsize=18)
+        ax.set_title(title, fontsize=18)
+        ax.tick_params(axis='both', labelsize=16)
+        # plt.colorbar(img, fraction=0.046 * (img.shape[0] / img.shape[1]), pad=0.04)
+        cbar = fig1.colorbar(img_obj, fraction=0.046, pad=0.04, ax=ax)
+        img_obj.set_clim(vmin=cbar_min, vmax=cbar_max)
+        cbar.draw_all()
+        # if method == "integral":
+        #     ax.set_xlim((0, 20))
+        #     ax.set_ylim((0, 20))
+
+    print("drf_img.shape: ", drf_img.shape)
+    print("np.sum(drf_img, axis=0) shape: ", np.sum(drf_img, axis=0).shape)
+    ax13.step(0.5 * (drf_en_bins[:-1] + drf_en_bins[1:]), np.sum(drf_img, axis=0), '-', where='mid')  # either drf_img or dt0_img could be used
+    ax13.set_xlabel("Energy (units arb.)", fontsize=18)
+    ax13.set_ylabel("Counts", fontsize=18)
+    ax13.tick_params(axis='both', labelsize=16)
+    # if method == "integral":
+    #    ax13.set_xlim((0, 20))
+    # bins = (bin_edges[1:] + bin_edges[:-1]) / 2
+    #                 ax.step(bins, values, 'b-', where='mid', label=plot_label)
+    #                 ax.set_xlabel(xlbl, fontsize=18)
+    #                 ax.set_ylabel("counts", fontsize=18)
+    #                 ax.set_title(title, fontsize=18)
+    #                 ax.tick_params(axis='both', labelsize=16)
+
+    fig1.canvas.draw()
+    fig1.canvas.flush_events()
+
+    for ax, bin_edges, values, \
+        xlbl, title, plot_label, lcolor in zip((ax21, ax22), (t0_to_rf_bins, drf_t_bins),
+                                             (t0_to_rf_times, np.sum(drf_img, axis=1)),
+                                             ("$\Delta$T (ns)", "$\Delta$T (ns)",),
+                                             ("$T_{t0}-T_{rf}$", "$\Delta$T with RF or T0"),
+                                             ("t0 to RF", "$T_{\gamma}-T_{rf}$"),
+                                             ('k-', 'b-')):
+        bins = (bin_edges[1:] + bin_edges[:-1]) / 2
+        ax.step(bins, values, lcolor, where='mid', label=plot_label)
+        ax.set_xlabel(xlbl, fontsize=18)
+        ax.set_ylabel("counts", fontsize=18)
+        ax.set_title(title, fontsize=18)
+        ax.tick_params(axis='both', labelsize=16)
+
+    ax22.step(0.5 * (dt0_t_bins[1:] + dt0_t_bins[:-1]), np.sum(dt0_img, axis=1), 'g-', where='mid', label="$T_{\gamma}-T_{t0}$")
+    ax22.legend(loc='best')
+
+    fig1.tight_layout()
+    fig2.tight_layout()
+    plt.show()
+
+
+def global_limits(imgs):
+    """imgs is a list of 2D imgs. Not used"""
+    min_val = np.inf
+    max_val = 0
+    for img in imgs:
+        if img.min() < min_val:
+            min_val = img.min()
+        if img.max() > max_val:
+            max_val = img.max()
+    return min_val, max_val
+
+
+    # x_extent = (en_edges[0], en_edges[-1])
+    #  = (t_edges[0] * self.sample_period, t_edges[-1] * self.sample_period)
+
+def plot_lfs_shifts():
+    import os
+    from pathlib import Path
+    import matplotlib.pyplot as plt
+
+    positions = [0, 2, 4, 5, 6, 8]
+
+    data_list = ["20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p0_v20",
+                 "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19",
+                 "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p4_v18",
+                 "20221017_Crocker_31.6V_LFS_500pa_DualDataset_nim_amp_p5_v17",
+                 "20221017_Crocker_31.6V_LFS_500pa_DualDataset_nim_amp_p6_v16",
+                 "20221017_Crocker_31.6V_LFS_500pa_DualDataset_nim_amp_p8_v15"]
+
+    data_list2 = ["20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p0_v20_en_gated",
+                  "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19_en_gated",
+                  "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p4_v18_en_gated",
+                  "20221017_Crocker_31.6V_LFS_500pa_DualDataset_nim_amp_p5_v17_en_gated",
+                  "20221017_Crocker_31.6V_LFS_500pa_DualDataset_nim_amp_p6_v16_en_gated",
+                  "20221017_Crocker_31.6V_LFS_500pa_DualDataset_nim_amp_p8_v15_en_gated"]
+
+    # np.savez(save_fname, filename=self.filename,
+    #                          t0_to_rf_bins=t0_to_rf_bins, t0_to_rf_counts=t0_to_rf_times,
+    #                          det_to_ref_time_bins=t_bins,
+    #                          det_to_rf_counts=det_to_rf_times, det_to_t0_counts=det_to_t0_times)
+
+    det_to_rf = {"max time": [], "FWHMs": [], "time centers": [], "time_centers_err": []}
+    det_to_t0 = {"max time": [], "FWHMs": [], "time centers": [], "time_centers_err": []}
+
+    outside_pts = 0
+
+    # for file in data_list2
+    for file in data_list2:
+        fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", file + ".npz")
+        # fname = file + ".npz"
+        data = np.load(fname)
+
+        drf_fwhm, drf_max, trf_c, trf_c_err = histogram_FWHM(data['det_to_ref_time_bins'], data['det_to_rf_counts'], outside_pts=outside_pts)
+        dt0_fwhm, dt0_max, tt0_c, tt0_c_err = histogram_FWHM(data['det_to_ref_time_bins'], data['det_to_t0_counts'], outside_pts=outside_pts)
+
+        det_to_rf['max time'].append(drf_max)
+        det_to_rf['FWHMs'].append(drf_fwhm)
+        det_to_rf['time centers'].append(trf_c)
+        det_to_rf['time_centers_err'].append(trf_c_err)
+
+        det_to_t0['max time'].append(dt0_max)
+        det_to_t0['FWHMs'].append(dt0_fwhm)
+        det_to_t0['time centers'].append(tt0_c)
+        det_to_t0['time_centers_err'].append(tt0_c_err)
+
+    print("Statistics:")
+    print("det to RF: ", det_to_rf)
+    print("det to t0: ", det_to_t0)
+    print("positions: ", positions)
+    # histogram_FWHM(time_bin_edges, counts, outside_pts=0)
+
+    fig1, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 12))
+
+    ax1.plot(np.array(positions), det_to_rf['time centers'], label='LFS to RF')
+    ax1.plot(np.array(positions), det_to_t0['time centers'], label='LFS to T0')
+    ax1.set_xlabel('relative pos (cm)')
+    ax1.set_ylabel('center of distribution (ns)')
+    ax1.legend(loc='best')
+
+    ax2.plot(np.array(positions), det_to_rf['FWHMs'], label='LFS to RF')
+    ax2.plot(np.array(positions), det_to_t0['FWHMs'], label='LFS to T0')
+    ax2.set_xlabel('relative pos (cm)')
+    ax2.set_ylabel('FWHM (ns)')
+    ax2.legend(loc='best')
+    plt.show()
+
+
+def save_current_t0_max_arrays():
+    import os
+    from pathlib import Path
+    import matplotlib.pyplot as plt
+    import crocker_energy_timing_lfs as cet
+
+    lfs_data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # p2 LFS
+    lfs_det_name = "lfs_en"  # no det field for this file
+    lfs_fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", lfs_data_file_name)
+    cet.t0_heights(lfs_fname, det_type=lfs_det_name, output=True, suppress_plots=True)
+
+    cher_data_file_name = "20221017_Crocker_31.6V_cherenkov_400pa_DualDataset_v4.dat"
+    cher_det_name = "cherenkov"
+    cher_fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", cher_data_file_name)
+    cet.t0_heights(cher_fname, det_type=cher_det_name, output=True, suppress_plots=False)
+
+
+def current_vs_t0voltage_plots():
+    # TODO: Figure out why can't directly output t0_heights
+    import os
+    from pathlib import Path
+    import matplotlib.pyplot as plt
+
+    base = "C:/Users/justi/Documents/GitHub/TlBr/sample_data/drs4/"
+    f4 = "20221017_Crocker_31.6V_cherenkov_400pa_DualDataset_v4t0max.npz"  # 400 pA
+    f5 = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19t0max.npz"  # 500 pA
+
+    cvals = np.load(base + f4)
+    lvals = np.load(base + f5)
+
+    fig, ax = plt.subplots(1, 1, figsize=(16, 12))  # ax1 -> rise_times, ax2 -> amplitudes
+    fig.suptitle("T0 Max Pulse Voltage", fontsize=22)
+    bins = lvals['bins']  # should be the same for both
+    for counts, label in zip((cvals['counts'], lvals['counts']), ("400 pA", "500 pA")):
+        ax.step(bins, counts/counts.sum(), where='mid', label=label)
+    ax.set_xlabel("Max Voltage (V)", fontsize=18)
+    ax.set_ylabel("counts", fontsize=18)
+    ax.tick_params(axis='both', labelsize=16)
+    ax.legend(loc='best')
+    plt.show()
+
+
+if __name__ == "__main__":
+    plot_lfs_shifts()
+    # current_vs_t0voltage_plots()
+    # save_current_t0_max_arrays()

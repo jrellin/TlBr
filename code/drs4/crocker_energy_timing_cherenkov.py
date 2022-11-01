@@ -3,7 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from crocker_utils import *
 # nearly identical to crocker_signals_timing_lfs.py, but 2D energy-time plots where time is just a projection
-# working on: 10/29
+# working on: 10/30
+# TODO: This has not been editted yet to work with cherenkov signals. Also 2D plotting
 
 
 class CrockerSignals(object):

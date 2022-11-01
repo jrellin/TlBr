@@ -503,12 +503,12 @@ if __name__ == "__main__":
     import os
     from pathlib import Path
 
-    data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"  # cherenkov
-    det = "cherenkov"
-    # data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # LFS
-    # det = "lfs_en"
+    # data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"  # cherenkov
+    # det = "cherenkov"
+    data_file_name = "20221017_Crocker_31.6V_LFS_500pa_SingleDataset_nim_amp_p2_v19.dat"  # LFS
+    det = "lfs_en"
     fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_file_name)
 
     # test_triggers(fname)
-    # t0_statistics(fname)
-    t0_rf_det_delta_t(fname, det)
+    t0_statistics(fname)
+    # t0_rf_det_delta_t(fname, det)
