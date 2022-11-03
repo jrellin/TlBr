@@ -73,7 +73,7 @@ class Analysis(object):
         return corrected, cathode_amp
 
     def create_ca_2d_histograms(self, anode_range=None, cathode_range=None,
-                                    anode_bins=None, cathode_bins=None, filter_overflow=True):
+                                    anode_bins=None, cathode_bins=None, filter_overflow=True, cath_dc_calib=True):
         """Create a 2D histogram from the anode and cathode signals. Range in number of ADC bins. """
 
         if anode_bins is None:
@@ -129,7 +129,27 @@ class Analysis(object):
         print("All events read!")
         print("Max hist sum: ", max_car_img.img.sum())
 
+        if cath_dc_calib:
+            g_min = 4096  # global min
+            for i in np.arange(self.n_anodes):
+                c_offset = self._cath_dc_calibrate(anode_car_imgs[i])
+                g_min = np.min([g_min, c_offset])
+            _ = self._cath_dc_calibrate(max_car_img, external_cath_offset=g_min)
+
         self.max_anode_cathode_histogram, self.anode_cathode_histograms = max_car_img, anode_car_imgs
+
+    def _cath_dc_calibrate(self, single_img_obj, first_anode_bins=50, external_cath_offset=-1):
+        """DC calibrates channel object"""
+        old_img = single_img_obj.img
+        new_img = np.zeros_like(old_img)
+        if external_cath_offset >= 0:
+            cath_offset = external_cath_offset  # useful for setting max after individual
+        else:
+            # cath_offset = np.argmax(np.sum(old_img, axis=1) > 0)
+            cath_offset = np.argmax(np.sum(old_img[:, :first_anode_bins], axis=1))
+        new_img[:(old_img.shape[0]-cath_offset)] = old_img[cath_offset:, :]
+        single_img_obj.set_img(new_img)
+        return cath_offset
 
     def plot_2d_ca_histograms(self, low_e_filt=None):
         # self._create_timing_2d_histograms(**kwargs)
@@ -158,8 +178,12 @@ class Analysis(object):
             fig1.colorbar(img, fraction=0.046, pad=0.04, ax=ax)
             ax.set_xlabel('Ch ' + str(i + 1) + ' ADC bin')
             ax.set_ylabel('Cathode ADC bin')
-            ax.set_xlim((0, 1000))
-            ax.set_ylim(150, 350)
+            # ax.set_xlim((0, 1000)) # Cs137, unshifted
+            # ax.set_ylim(150, 350)  # Cs137, unshifted
+            ax.set_xlim((0, 2000)) # Na22, shifted
+            ax.set_ylim(0, 1200)  # Na22, shifted
+            # ax.set_xlim((0, 1000))  # Cs137, shifted
+            # ax.set_ylim(0, 137)  # Cs137, shifted
 
         fig2, ax2 = plt.subplots(1, 1, figsize=(6, 6))
         m_img = max_hist.img
@@ -170,8 +194,12 @@ class Analysis(object):
             m_img[:, :cutoff] = 0
         img = ax2.imshow(m_img, cmap='magma_r', origin='lower', interpolation='none', extent=np.append(a_extent, c_extent), aspect='auto')
         fig2.colorbar(img, fraction=0.046, pad=0.04, ax=ax2)
-        ax2.set_xlim((0, 1000))
-        ax2.set_ylim(150, 350)
+        # ax2.set_xlim((0, 1000))  # Cs137
+        # ax2.set_ylim(150, 350)  # Cs137
+        ax2.set_xlim((0, 2000))  # Na22
+        ax2.set_ylim(0, 1200)  # Na22
+        # ax2.set_xlim((0, 1000))  # Cs137, shifted
+        # ax2.set_ylim(0, 137)  # Cs137, shifted
         ax2.set_xlabel('Max Anode ADC bin')
         ax2.set_ylabel('Cathode ADC bin')
 
@@ -180,8 +208,8 @@ class Analysis(object):
 
         plt.show()
 
-    def plot_1D_projections(self, anode_log_scale=True, cathode_log_scale=False,
-                            **kwargs):
+    def plot_1D_projections(self, anode_log_scale=False, cathode_log_scale=False,
+                            energy_calib=True):
         # self._create_timing_2d_histograms(**kwargs)
         max_hist, anode_histograms = self.max_anode_cathode_histogram, self.anode_cathode_histograms
         # return self.a_edges, self.c_edges  # anode, cathode
@@ -209,10 +237,19 @@ class Analysis(object):
             a_proj = np.sum(ch_hist, axis=0)  # anode projection
             c_proj = np.sum(ch_hist, axis=1)  # cathode projection
 
-            a_ax.step(a_step_bins, a_proj, 'b-', where='mid')
+            if energy_calib:
+                b_to_en = 511 / 670
+                a_ax.step(a_step_bins * b_to_en, a_proj, 'b-', where='mid')
+                a_ax.set_xlabel('Energy (keV))')
+                # a_ax.set_xlim((0, 800))  # Cs137, shifted
+                a_ax.set_xlim((0, 1600))  # Na22, shifted
+            else:
+                a_ax.step(a_step_bins, a_proj, 'b-', where='mid')
+                a_ax.set_xlabel('Anode ADC')
+            # a_ax.step(a_step_bins, a_proj, 'b-', where='mid')
             c_ax.step(c_step_bins, c_proj, 'b-', where='mid')
 
-            a_ax.set_title("Amplitude (Channel {n})".format(n=i + 1))
+            a_ax.set_title("Channel {n}".format(n=i + 1))
             c_ax.set_title("Amplitude (Channel {n})".format(n=i + 1))
             # ax.set_xlabel('ch ' + str(i+1))
             a_ax.set_ylabel('Counts')
@@ -233,13 +270,22 @@ class Analysis(object):
         a_max_proj = np.sum(max_img, axis=0)  # anode max ch projection
         c_max_proj = np.sum(max_img, axis=1)  # anode max ch projection
 
-        ax31.step(a_step_bins, a_max_proj, 'b-', where='mid')
+        if energy_calib:
+            b_to_en = 511/670
+            ax31.step(a_step_bins * b_to_en, a_max_proj, 'b-', where='mid')
+            ax31.set_xlabel('Anode (keV))')
+            # ax31.set_xlim((0, 800))  # Cs137, shifted
+            ax31.set_xlim((0, 1600))  # Na22, shifted
+        else:
+            ax31.step(a_step_bins, a_max_proj, 'b-', where='mid')
+            ax31.set_xlabel('Anode ADC')
+
         ax32.step(c_step_bins, c_max_proj, 'b-', where='mid')
 
         ax31.set_ylabel('Counts')
         ax32.set_ylabel('Counts')
 
-        ax31.set_xlabel('Anode ADC')
+        # ax31.set_xlabel('Anode ADC')
         ax32.set_xlabel('Cathode ADC')
 
         if anode_log_scale:
@@ -329,29 +375,6 @@ class Analysis(object):
         ax.set_yscale('log')
         plt.show()
 
-    # TODO: "Calibrate" Cathode DC offset
-
-    # def _dc_calibrate(histograms, add_ind=10, flip_histograms=False):
-    # """Takes in histograms a N row x M column array where the rows are histograms and M are the detectors"""
-    # ndets = histograms.shape[0]
-
-    # if flip_histograms:
-    #     histograms = np.fliplr(histograms)
-    # shifted_histograms = np.zeros_like(histograms)
-    # dc_vals_ind = np.argmax(histograms, axis=1)  # this assumes the dc level is the max count bin
-    # base_reference = np.max(dc_vals_ind)
-
-    # for i, old_dc_bin in enumerate(dc_vals_ind):
-    #     # old_dc_bin = dc_vals_ind[i]
-    #     histograms[i, :(old_dc_bin+add_ind)] = 0
-    #     shift = base_reference - old_dc_bin
-    #     if shift:  # i.e. not the max
-    #         shifted_histograms[i, base_reference:] = histograms[i, old_dc_bin:-shift]
-    #     else:
-    #         shifted_histograms[i, :] = histograms[i, :]
-
-    # return shifted_histograms
-
 
 class CAImage(object):
     def __init__(self, ranges, bins):
@@ -362,6 +385,10 @@ class CAImage(object):
     def add_values_to_image(self, energy_vals, time_vals):
         img_hist = np.histogram2d(energy_vals, time_vals, bins=[self.a_edges, self.c_edges])[0]
         self._img_hist += img_hist.T
+
+    def set_img(self, new_img):
+        """Useful for cathode DC offsets"""
+        self._img_hist = new_img
 
     @property
     def img(self):
@@ -375,15 +402,24 @@ class CAImage(object):
 def main(filename, **kwargs):
     prc = Analysis(filename, **kwargs)
     # prc.det_calibration = 540 / np.array([540, 540, 540, 540, 570, 540, 530, 540, 550, 560, 550, 550, 270, 550, 560, 540])
-    prc.det_calibration = np.array([1, 0.66, 1, 1,
-                                    1, 1, 1, 1,
-                                    1, 1, 1, 1,
-                                    2, 1, 1, 1])
+    # prc.det_calibration = np.array([1, 0.66, 1, 1,
+    #                                 1, 1, 1, 1,
+    #                                 1, 1, 1, 1,
+    #                                 2, 1, 1, 1])
+    coarse_gain_correction = np.array([1, 0.66, 1, 1,
+                                       1, 1, 1, 1,
+                                       1, 1, 1, 1,
+                                       2, 1, 1, 1])
+    fine_gain_correction = 717 / np.array([717, 614, 611, 614,
+                                           717, 680, 611, 635,
+                                           667, 676, 640, 635,
+                                           811, 678, 632, 640])  # 50% fall off in 511 line
+    prc.det_calibration = coarse_gain_correction * fine_gain_correction
     prc.create_ca_2d_histograms()
-    prc.plot_2d_ca_histograms(low_e_filt=80)
+    prc.plot_2d_ca_histograms(low_e_filt=80)  # Cs137
+    # prc.plot_2d_ca_histograms()
     prc.plot_1D_projections()
-    prc.cathode_gating(3)
-
+    # prc.cathode_gating(3)  # Cs137
     prc.close()
 
 
@@ -392,7 +428,9 @@ if __name__ == "__main__":
     from pathlib import Path
 
     # data_file_name = "DavisD2022_9_23T15_51_clean.h5"  # weekend run
-    data_file_name = "DavisD2022_10_20T12_7_clean.h5"  # Cs137, good data set
+    # data_file_name = "DavisD2022_10_20T12_7_clean.h5"  # Cs137, good data set
+    # data_file_name = "DavisD2022_10_20T16_3_clean.h5"  # Probably Cs137
+    data_file_name = "DavisD2022_10_21T11_11_clean.h5"  # Na-22
     fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "Data_hdf5", data_file_name)
     print("fname: ", fname)
 

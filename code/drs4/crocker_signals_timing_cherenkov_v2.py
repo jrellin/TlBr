@@ -281,9 +281,6 @@ class CrockerSignals(object):
             polarity = 1
             if chn == self.ch_names["t0"]:
                 polarity = -1  # needs to be flipped for cherenkov, not flipped for lfs trigger
-            # TODO: Remove this next line
-            if chn == self.ch_names["lfs"]:
-                continue
             ax.plot(time_calibrated_bins[chn] - (delay * self.cable_delays[chn]), voltage_calibrated[chn] * polarity,
                     label=labels[chn-1])
         print("det_trig: ", det_trig)
@@ -291,12 +288,11 @@ class CrockerSignals(object):
         ax.plot(t0_trigs, t0_voltage_at_trig, "o")
         ax.plot(det_trig, det_voltage_at_trig, "8")
         ax.plot(lfs_en_peak_time, lfs_en_peak + lfs_en_baseline, "x")
-        ax.set_xlabel('time (ns)',  fontsize=20)
-        ax.set_ylabel('amplitude (V)',  fontsize=20)
-        ax.tick_params(axis='both', labelsize=18)
+        ax.set_xlabel('time (ns)',  fontsize=18)
+        ax.set_ylabel('amplitude (V)',  fontsize=18)
+        ax.tick_params(axis='both', labelsize=16)
         ax.set_xlim((0, 200))
-        # ax.legend(loc='best', fontsize=18)
-        ax.legend(loc='upper right', fontsize=18)
+        ax.legend(loc='best')
         plt.show()
 
     def rf_to_t0_and_detector(self, log_scale=False, suppress_plots=False, save_histograms=False, save_fname=None):
@@ -406,12 +402,13 @@ class CrockerSignals(object):
         fig.suptitle(det + " Detector, RF, and T0 $\Delta$T", fontsize=22)
 
         for ax, bin_edges, values, \
-            xlbl, title, plot_label in zip((ax1, ax2), (t0_to_rf_bins, t_bins),
+            xlbl, title, plot_label, color in zip((ax1, ax2), (t0_to_rf_bins, t_bins),
                                            (t0_to_rf_times, det_to_rf_times), ("$\Delta$T (ns)", "$\Delta$T (ns)"),
                                            ("$T_{t0}-T_{rf}$", "$\Delta$T with RF or T0"),
-                                           ("t0 to RF", "$T_{\gamma}-T_{rf}$")):
+                                           ("t0 to RF", "$T_{\gamma}-T_{rf}$"),
+                                           ('tab:orange', 'tab:cyan')):
             bins = (bin_edges[1:] + bin_edges[:-1]) / 2
-            ax.step(bins, values, 'b-', where='mid', label=plot_label)
+            ax.step(bins, values, color, where='mid', label=plot_label)
             ax.set_xlabel(xlbl, fontsize=18)
             ax.set_ylabel("counts", fontsize=18)
             ax.set_title(title, fontsize=18)
@@ -424,8 +421,8 @@ class CrockerSignals(object):
         # if self.det_type == "cherenkov":
         #     t_centers += 0
 
-        ax2.step(t_centers, det_to_t0_times, 'g-', where='mid', label="$T_{\gamma}-T_{t0}$")
-        ax2.legend(loc='best')
+        ax2.step(t_centers, det_to_t0_times, 'tab:purple', where='mid', label="$T_{\gamma}-T_{t0}$")
+        ax2.legend(loc='best', fontsize=18)
         if not suppress_plots:
             plt.show()
 
@@ -437,7 +434,8 @@ class CrockerSignals(object):
                      det_to_ref_time_bins=t_bins,
                      det_to_rf_counts=det_to_rf_times, det_to_t0_counts=det_to_t0_times)
 
-    def cherenkov_2D_energy_time_plots(self, method="integral", delay_correct=True):
+    def cherenkov_2D_energy_time_plots(self, method="integral", save_time_histograms=False, save_fname=None,
+                                       delay_correct=True, energy_gating=False, suppress_plots=False):
         """Full method to plot 2D energy time (time of gamma - T0/RF), 1D projections, and (t0-rf)"""
         board = self.board_ids[0]
         channels = self.channels[board]
@@ -445,8 +443,10 @@ class CrockerSignals(object):
 
         if method == "peak":
             en_bins = np.linspace(0, 0.7, num=4097)
+            en_low_gate = 0.08
         else:  # "integral"
             en_bins = np.linspace(0, 30, num=4097)
+            en_low_gate = 3.5
 
         t0_to_rf_times, t0_to_rf_bins = np.histogram([], bins=np.linspace(-22, 22, num= 2401))
         det_to_rf = ETImage([en_bins, np.linspace(-4, 44, num=1001)])  # x - energy, y - time
@@ -477,6 +477,12 @@ class CrockerSignals(object):
                 lfs_en_val, _, _ = \
                     self._cherenkov_energy_signal(time_calibrated_bins, voltage_calibrated,
                                             method=method, delay_corrected=delay_correct)
+
+                if energy_gating & (lfs_en_val < en_low_gate):  # energy gating
+                    self.event = next(self.f)
+                    missed_pulses += 5
+                    tot_evts += 1
+                    continue
 
                 if (np.sum((det_trig - crossings) > 0) <= 0) or (np.sum((det_trig - t0_trigs) > 0) <= 0):
                     # No sensible nearest triggers
@@ -539,7 +545,18 @@ class CrockerSignals(object):
         print("Missed pulses: ", missed_pulses)
 
         # full_2D_plot(det_to_rf, det_to_t0, t0_to_rf_times, t0_to_rf_bins, detector="LFS", method="integral"):
-        full_2D_plot(det_to_rf, det_to_t0, t0_to_rf_times, t0_to_rf_bins, detector="LFS", method=method)
+        full_2D_plot(det_to_rf, det_to_t0, t0_to_rf_times, t0_to_rf_bins, detector="Cherenkov", method=method)
+
+        drf_img, (_, drf_t_bins) = det_to_rf.img, det_to_rf.bins
+        dt0_img, (_, dt0_t_bins) = det_to_t0.img, det_to_t0.bins
+
+        if save_time_histograms:
+            if save_fname is None:
+                save_fname = self.filename + "histograms"
+            np.savez(save_fname, filename=self.filename,
+                     t0_to_rf_bins=t0_to_rf_bins, t0_to_rf_counts=t0_to_rf_times,
+                     det_to_ref_time_bins=drf_t_bins,
+                     det_to_rf_counts=np.sum(drf_img, axis=1), det_to_t0_counts=np.sum(dt0_img, axis=1))
 
     def t0_signal_height(self):
         """Generates histogram of 10-90 rise times and amplitudes of t0 signal."""
@@ -603,13 +620,13 @@ def test_triggers(fname):  # no det field, only LFS files here
     tst = CrockerSignals(fname)
     print(tst.f.board_ids)
 
-    skip = 15 # 1200, 3210 with p2 is interesting spike
+    skip = 10 # 1200, 3210 with p2 is interesting spike
     # 3206 with p2 illustrates possible edge case for recovering t0 pulses near edge
     for _ in np.arange(skip):
         tst.event = next(tst.f)
         # print(tst.event.timestamp)
 
-    n_test = 10
+    n_test = 3
 
     delay = False
     for _ in np.arange(n_test):
@@ -618,8 +635,6 @@ def test_triggers(fname):  # no det field, only LFS files here
 
     # tst.event = next(tst.f)
     # tst.test_rf_t0_points()
-
-    # p0, number 13: cherenkov signal but no t0/protons?
 
 
 def t0_rf_det_delta_t(fname, save_histograms=False, suppress_plots=False): # no det field, only LFS files here
@@ -645,12 +660,30 @@ def energy_spectrum(fname):
 
 
 def full_plotting(fname):
-    lfs_data = CrockerSignals(fname)
-    print(lfs_data.f.board_ids)
-    method = "integral"
+    cherenkov_data = CrockerSignals(fname)
+    print(cherenkov_data .f.board_ids)
+    method = "peak"
+    # method = "integral"
     delay_correct = True
 
-    lfs_data.cherenkov_2D_energy_time_plots(method=method, delay_correct=delay_correct)
+    cherenkov_data.cherenkov_2D_energy_time_plots(method=method, delay_correct=delay_correct)
+
+
+def full_plotting_gated(fname, suppress_plots=False):
+    import os
+    base_fname = os.path.splitext(fname)[0] + "_en_gated"
+    print(base_fname)
+
+    cherenkov_data = CrockerSignals(fname)
+    print(cherenkov_data .f.board_ids)
+    method = "integral"
+    delay_correct = True
+    save_histograms = True
+    energy_gating = True
+
+    cherenkov_data.cherenkov_2D_energy_time_plots(method=method, delay_correct=delay_correct, save_time_histograms=save_histograms,
+                                                  save_fname=base_fname, energy_gating=energy_gating,
+                                                  suppress_plots=suppress_plots)
 
 
 def t0_heights(fname):
@@ -674,11 +707,12 @@ def main():
 
     fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_file_name)
 
-    test_triggers(fname)
+    # test_triggers(fname)
     # t0_heights(fname)
-    # t0_rf_det_delta_t(fname, save_histograms=True)  # 1d time plots
+    t0_rf_det_delta_t(fname, save_histograms=False)  # 1d time plots
     # energy_spectrum(fname)
     # full_plotting(fname)  # 2d and all other plots
+    # full_plotting_gated(fname)
 
 
 def batch_main():
@@ -695,6 +729,21 @@ def batch_main():
         t0_rf_det_delta_t(fname, save_histograms=True, suppress_plots=False)  # 1d time plots
 
 
+def batch_main_gated():  # gate cherenkov delta T data
+    import os
+    from pathlib import Path
+    data_files = ["20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p0_v9.dat",
+                  "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat",
+                  "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p4_v11.dat",
+                  "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p5_v14.dat",
+                  "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p6_v12.dat",
+                  "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p8_v13.dat"]
+    for data_file in data_files:
+        fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_file)
+        full_plotting_gated(fname)
+
+
 if __name__ == "__main__":
     main()
     # batch_main()
+    # batch_main_gated()

@@ -360,7 +360,15 @@ class ETImage(object):
 def main(filename, **kwargs):
     prc = Analysis(filename, **kwargs)
     # Ch 2 is arbitrary for det 1
-    prc.det_calibration = 540 / np.array([540, 540, 540, 540, 570, 540, 530, 540, 550, 560, 550, 550, 270, 550, 560, 540])
+    coarse_gain_correction = np.array([1, 0.66, 1, 1,
+                                       1, 1, 1, 1,
+                                       1, 1, 1, 1,
+                                       2, 1, 1, 1])
+    fine_gain_correction = 717 / np.array([717, 614, 611, 614,
+                                           717, 680, 611, 635,
+                                           667, 676, 640, 635,
+                                           811, 678, 632, 640])  # 50% fall off in 511 line
+    prc.det_calibration = coarse_gain_correction * fine_gain_correction
     # prc.plot_2d_timing_histograms()
     prc.create_timing_2d_histograms()
     prc.plot_2d_timing_histograms()
@@ -385,10 +393,13 @@ if __name__ == "__main__":
     # base_folder = "C:/Users/tlbr-user/Documents/TlBr_Analysis_Python/drs4timing/Data_hdf5/"
     # data_file_name = "DavisD2022_9_20T17_1_clean.h5"
     # data_file_name = "DavisD2022_9_22T16_3_clean.h5"
-    data_file_name = "DavisD2022_9_23T15_51_clean.h5"  # weekend run
+    # data_file_name = "DavisD2022_9_23T15_51_clean.h5"  # weekend run
     # data_file_name = "DavisD2022_9_28T13_48_clean.h5"  # Cs-137
     # data_file_name = "DavisD2022_9_28T16_13_clean.h5"  # Th-228, CG 8, FG 0, no sipm max
     # data_file_name = "DavisD2022_9_30T13_54_clean.h5" # Co60, CG 8, FG 0, no sipm max
+
+    # IEEE
+    data_file_name = "DavisD2022_10_24T9_9_clean.h5"  # Na 22
 
     fname = os.path.join(str(Path(os.getcwd()).parents[1]), "Data_hdf5", data_file_name)
     print("fname: ", fname)

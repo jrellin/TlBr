@@ -4,4 +4,7 @@
 /Data_hdf5/*.h5
 /sample_data/drs4/*
 /sample_data/Data_hdf5/*
+/sample_data/LocalDigitizerData/*
+/sample_data/LocalDigitizerDataCrocker/*
+/code/depth_correction/Data_processed_binary/*
 __pycache__/

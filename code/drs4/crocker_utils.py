@@ -79,11 +79,14 @@ def correlate_pulse_trains(t1, t2):
     return del_t  # hopefully the closest pairs of values
 
 
-def histogram_FWHM(time_bin_edges, counts, outside_pts=0):
+def histogram_FWHM(time_bin_edges, counts, outside_pts=0, given_bins=False):
     """Finds FHWM of a time histogram, need time bins and counts. Outside points refers to how many points outside
     before and after 0.5 crossings to include for linear fit"""
     from numpy.polynomial import polynomial as P
-    time_bins = 0.5 * (time_bin_edges[1:] + time_bin_edges[:-1])
+    if not given_bins:
+        time_bins = 0.5 * (time_bin_edges[1:] + time_bin_edges[:-1])
+    else:
+        time_bins = time_bin_edges
 
     op = int(outside_pts)  # alias
     h_max = np.max(counts)
@@ -113,7 +116,7 @@ def histogram_FWHM(time_bin_edges, counts, outside_pts=0):
     # counts above 50% max
     t_center_err = 1/np.sqrt(counts[lo_idx:hi_idx].sum())
 
-    return fwhm, time_bins[h_amax], t_center, t_center_err  # fwhm, max position
+    return fwhm, time_bins[h_amax], t_center, t_center_err, (time_bins[lo_idx], time_bins[hi_idx]), (r_t_interp, f_t_interp)  # fwhm, max position
 
 
 class ETImage(object):
@@ -136,7 +139,7 @@ class ETImage(object):
         return self.xedges, self.yedges  # energy, time
 
 
-def full_2D_plot(det_to_rf, det_to_t0, t0_to_rf_times, t0_to_rf_bins, detector="LFS", method="integral"):
+def full_2D_plot(det_to_rf, det_to_t0, t0_to_rf_times, t0_to_rf_bins, detector="LFS", suppress_plots=False, method="integral"):
     """Plotting method for crocker_energy_timing_X.py files for generating 2D plots, 1D projections.
     Det_to_rf and det_to_t0 are both ETImage objects. t0_to_rf_times and t0_to_ref_bins are histogram counts,
     and bin edges, respectively. Method refers to the method to get the energy value of the detector."""
@@ -207,7 +210,8 @@ def full_2D_plot(det_to_rf, det_to_t0, t0_to_rf_times, t0_to_rf_bins, detector="
 
     fig1.tight_layout()
     fig2.tight_layout()
-    plt.show()
+    if not suppress_plots:
+        plt.show()
 
 
 def global_limits(imgs):
@@ -246,6 +250,20 @@ def plot_lfs_shifts():
                   "20221017_Crocker_31.6V_LFS_500pa_DualDataset_nim_amp_p6_v16_en_gated",
                   "20221017_Crocker_31.6V_LFS_500pa_DualDataset_nim_amp_p8_v15_en_gated"]
 
+    data_cherenkov = ["20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p0_v9",
+                      "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10",
+                      "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p4_v11",
+                      "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p5_v14",
+                      "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p6_v12",
+                      "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p8_v13"]
+
+    data_cherenkov_gated = ["20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p0_v9_en_gated",
+                            "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10_en_gated",
+                            "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p4_v11_en_gated",
+                            "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p5_v14_en_gated",
+                            "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p6_v12_en_gated",
+                            "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p8_v13_en_gated"]
+
     # np.savez(save_fname, filename=self.filename,
     #                          t0_to_rf_bins=t0_to_rf_bins, t0_to_rf_counts=t0_to_rf_times,
     #                          det_to_ref_time_bins=t_bins,
@@ -256,14 +274,28 @@ def plot_lfs_shifts():
 
     outside_pts = 0
 
-    # for file in data_list2
-    for file in data_list2:
+    fig2, axs = plt.subplots(1, 1, figsize=(16, 12))  # axis shift
+    fig3, axrf = plt.subplots(1, 1, figsize=(16, 12))  # axis shift
+    # ax.step(bins, counts / counts.sum(), where='mid', label=label)
+
+    # for file in data_list, data_list2, data_cherenkov, data_cherenkov_gated
+    for file, pos in zip(data_cherenkov, positions):
+        # TODO: remove
+        if pos not in (0, 4, 8):
+            continue
         fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", file + ".npz")
         # fname = file + ".npz"
         data = np.load(fname)
 
-        drf_fwhm, drf_max, trf_c, trf_c_err = histogram_FWHM(data['det_to_ref_time_bins'], data['det_to_rf_counts'], outside_pts=outside_pts)
-        dt0_fwhm, dt0_max, tt0_c, tt0_c_err = histogram_FWHM(data['det_to_ref_time_bins'], data['det_to_t0_counts'], outside_pts=outside_pts)
+        drf_fwhm, drf_max, trf_c, trf_c_err, (t_lo_rf, t_hi_rf), interps = histogram_FWHM(data['det_to_ref_time_bins'], data['det_to_rf_counts'], outside_pts=outside_pts)
+        dt0_fwhm, dt0_max, tt0_c, tt0_c_err, (t_lo_t0, t_hi_t0), interps = histogram_FWHM(data['det_to_ref_time_bins'], data['det_to_t0_counts'], outside_pts=outside_pts)
+
+        if pos == 0:
+            print("Position 0 cross points:")
+            print("RF (ns): ", (t_lo_rf, t_hi_rf))
+            print("RF half max: ", data['det_to_rf_counts'].max()/2)
+            print("T0 (ns): ", (t_lo_t0, t_hi_t0))
+            print("T0 half max: ", data['det_to_t0_counts'].max() / 2)
 
         det_to_rf['max time'].append(drf_max)
         det_to_rf['FWHMs'].append(drf_fwhm)
@@ -275,29 +307,163 @@ def plot_lfs_shifts():
         det_to_t0['time centers'].append(tt0_c)
         det_to_t0['time_centers_err'].append(tt0_c_err)
 
+        bin_edges = data['det_to_ref_time_bins']
+        trf_bin_edges = data['t0_to_rf_bins']
+        # axs.plot(0.5 * (bin_edges[1:] + bin_edges[:-1]), data['det_to_t0_counts']/data['det_to_t0_counts'].max(), label=pos)
+        # axrf.plot(0.5 * (trf_bin_edges[1:] + trf_bin_edges[:-1]), data['t0_to_rf_counts']/data['t0_to_rf_counts'].max(), label=pos)
+        axs.plot(0.5 * (bin_edges[1:] + bin_edges[:-1]), data['det_to_t0_counts'], label=pos)
+        axrf.plot(0.5 * (trf_bin_edges[1:] + trf_bin_edges[:-1]), data['t0_to_rf_counts'], label=pos)
+
+    axs.legend(loc='best')
+    axs.set_xlabel('ns')
+    axs.set_ylabel('counts')
+
+    axrf.legend(loc='best')
+    axrf.set_xlabel('ns')
+    axs.set_ylabel('counts')
+
     print("Statistics:")
     print("det to RF: ", det_to_rf)
     print("det to t0: ", det_to_t0)
     print("positions: ", positions)
     # histogram_FWHM(time_bin_edges, counts, outside_pts=0)
 
-    fig1, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 12))
+    # fig1, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 12))
 
-    ax1.plot(np.array(positions), det_to_rf['time centers'], label='LFS to RF')
-    ax1.plot(np.array(positions), det_to_t0['time centers'], label='LFS to T0')
-    ax1.set_xlabel('relative pos (cm)')
-    ax1.set_ylabel('center of distribution (ns)')
-    ax1.legend(loc='best')
+    # det = "LFS"
+    # det = "Cher."
+    # ax1.plot(np.array(positions), det_to_rf['time centers'], label=det + ' to RF')
+    # ax1.plot(np.array(positions), det_to_t0['time centers'], label=det + ' to T0')
+    # ax1.set_xlabel('relative pos (cm)')
+    # ax1.set_ylabel('center of distribution (ns)')
+    # ax1.legend(loc='best')
 
-    ax2.plot(np.array(positions), det_to_rf['FWHMs'], label='LFS to RF')
-    ax2.plot(np.array(positions), det_to_t0['FWHMs'], label='LFS to T0')
-    ax2.set_xlabel('relative pos (cm)')
-    ax2.set_ylabel('FWHM (ns)')
-    ax2.legend(loc='best')
+    # ax2.plot(np.array(positions), det_to_rf['FWHMs'], label=det + ' to RF')
+    # ax2.plot(np.array(positions), det_to_t0['FWHMs'], label=det + ' to T0')
+    # ax2.set_xlabel('relative pos (cm)')
+    # ax2.set_ylabel('FWHM (ns)')
+    # ax2.legend(loc='best')
     plt.show()
 
 
+def plot_lfs_shifts_averaging():
+    import os
+    from pathlib import Path
+    import matplotlib.pyplot as plt
+
+    # positions = [0, 2, 4, 5, 6, 8]
+    trials = [1, 2, 3, 4, 5, 6]
+
+    data_cherenkov = ["20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p0_v9",
+                      "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10",
+                      "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p4_v11",
+                      "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p5_v14",
+                      "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p6_v12",
+                      "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p8_v13"]
+
+    det_to_rf = {"max time": [], "FWHMs": [], "time centers": [], "time_centers_err": []}
+    det_to_t0 = {"max time": [], "FWHMs": [], "time centers": [], "time_centers_err": []}
+
+    outside_pts = 0
+
+    fig1, (axrf, axc) = plt.subplots(1, 2, figsize=(16, 12))  # t0 to RF, averaged det to T0 and det to RF curves
+
+    # initialize with first entry
+    fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_cherenkov[0] + ".npz")
+    data = np.load(fname)
+    time_bin_edges = data['det_to_ref_time_bins']
+    t0_to_rf_bin_edges = data['t0_to_rf_bins']
+    counts_rf = data['det_to_rf_counts']
+    counts_t0 = data['det_to_t0_counts']
+
+    drf_fwhm, drf_max, trf_c, trf_c_err, (t_lo_rf, t_hi_rf), interps = histogram_FWHM(time_bin_edges, counts_rf, outside_pts=outside_pts)
+    dt0_fwhm, dt0_max, tt0_c, tt0_c_err, (t_lo_t0, t_hi_t0), interps = histogram_FWHM(time_bin_edges, counts_t0, outside_pts=outside_pts)
+    det_to_rf['max time'].append(drf_max)
+    det_to_rf['FWHMs'].append(drf_fwhm)
+    det_to_rf['time centers'].append(trf_c)
+    det_to_rf['time_centers_err'].append(trf_c_err)
+
+    det_to_t0['max time'].append(dt0_max)
+    det_to_t0['FWHMs'].append(dt0_fwhm)
+    det_to_t0['time centers'].append(tt0_c)
+    det_to_t0['time_centers_err'].append(tt0_c_err)
+
+    total_rf = counts_rf.copy()
+    total_t0 = counts_t0.copy()
+
+    shift = 0
+    det_time_bins = 0.5 * (time_bin_edges[1:] + time_bin_edges[:-1])
+    t0_to_rf_bins = 0.5 * (t0_to_rf_bin_edges[1:] + t0_to_rf_bin_edges[:-1]) + shift
+
+    axrf.plot(t0_to_rf_bins, data['t0_to_rf_counts'], label='Trial ' + str(trials[0]))
+
+    for file, trial in zip(data_cherenkov[1:], trials[1:]):
+        fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", file + ".npz")
+        # fname = file + ".npz"
+        data = np.load(fname)
+        total_rf += data['det_to_rf_counts']
+        total_t0 += data['det_to_t0_counts']
+        # print("Total RF counts: ", total_rf.sum())
+        # print("Total t0 counts: ", total_t0.sum())
+
+        drf_fwhm, drf_max, trf_c, trf_c_err, (t_lo_rf, t_hi_rf), interps = histogram_FWHM(data['det_to_ref_time_bins'],
+                                                                                 data['det_to_rf_counts'],
+                                                                                 outside_pts=outside_pts)
+        dt0_fwhm, dt0_max, tt0_c, tt0_c_err, (t_lo_t0, t_hi_t0), interps = histogram_FWHM(data['det_to_ref_time_bins'],
+                                                                                 data['det_to_t0_counts'],
+                                                                                 outside_pts=outside_pts)
+        det_to_rf['max time'].append(drf_max)
+        det_to_rf['FWHMs'].append(drf_fwhm)
+        det_to_rf['time centers'].append(trf_c)
+        det_to_rf['time_centers_err'].append(trf_c_err)
+
+        det_to_t0['max time'].append(dt0_max)
+        det_to_t0['FWHMs'].append(dt0_fwhm)
+        det_to_t0['time centers'].append(tt0_c)
+        det_to_t0['time_centers_err'].append(tt0_c_err)
+
+        # axrf.step(t0_to_rf_bins, data['t0_to_rf_counts'] / data['t0_to_rf_counts'].max(), where='mid', label=trial)
+        axrf.step(t0_to_rf_bins, data['t0_to_rf_counts'], where='mid', label='Trial ' + str(trial))
+
+    axc.step(det_time_bins, total_rf, 'tab:purple', where='mid', label="$T_{\gamma}-T_{rf}$")
+    axc.step(det_time_bins, total_t0, 'tab:cyan', where='mid', label="$T_{\gamma}-T_{T0}$")
+
+    axc.legend(loc='best', fontsize=18)
+    axc.set_xlabel("$\Delta$T (ns)", fontsize=18)
+    axc.set_ylabel("Counts", fontsize=18)
+    axc.tick_params(axis='both', labelsize=16)
+    axc.set_title("$T_{t0}-T_{rf}$", fontsize=18)
+    axc.set_title("$\Delta$T with RF or T0", fontsize=22)
+    axc.set_xlim((0, 10))
+
+    axrf.legend(loc='best', fontsize=18)
+    axrf.set_xlabel("$\Delta$T (ns)", fontsize=18)  # "$\Delta$T with RF or T0"
+    axrf.set_ylabel('Counts', fontsize=18)
+    axrf.tick_params(axis='both', labelsize=16)
+    axrf.set_title("$T_{T0}-T_{rf}$", fontsize=22)
+    axrf.set_xlim((-6.5, 1))
+
+    for counts, color, left_shift, right_shift, lbl in zip((total_rf, total_t0), ('tab:purple', 'tab:cyan'), (1, 2), (1, 0),
+                                                           ('rf', 't0')):
+        (h_max, h_amax), (lo_idx, hi_idx) = _histogram_t0_stats(counts)
+        # return (h_max, h_amax), (lo_idx, hi_idx)  # fwhm, max position
+        fwhm, _, _, c_err, _, interps = histogram_FWHM(det_time_bins, counts, outside_pts=outside_pts)
+        print('FWHM {l}: '.format(l=lbl), fwhm)
+        print("Err: ", c_err)
+        print("Weighted Average Uncertainty: ", 1 / np.sqrt(counts[lo_idx:hi_idx].sum()))
+        # axc.hlines(h_max / 2, det_time_bins[lo_idx-left_shift], det_time_bins[hi_idx+right_shift], colors=color, linestyles='dashed', linewidths=4)
+        axc.hlines(h_max / 2, interps[0], interps[1], colors=color,
+                   linestyles='dashed', linewidths=4)
+
+    # print("Statistics:")
+    # print("det to RF: ", det_to_rf)
+    # print("det to t0: ", det_to_t0)
+    # histogram_FWHM(time_bin_edges, counts, outside_pts=0)
+
+    plt.show()
+
 def save_current_t0_max_arrays():
+    # TODO: Modify these plots
     import os
     from pathlib import Path
     import matplotlib.pyplot as plt
@@ -314,6 +480,17 @@ def save_current_t0_max_arrays():
     cet.t0_heights(cher_fname, det_type=cher_det_name, output=True, suppress_plots=False)
 
 
+def _histogram_t0_stats(counts):
+    """Stats useful for plotting on t0 plot"""
+
+    h_max = np.max(counts)
+    h_amax = np.argmax(counts)
+
+    lo_idx = h_amax - np.argmin(counts[:h_amax][::-1] >= (0.5 * h_max))  # just after threshold before max
+    hi_idx = h_amax + np.argmin(counts[h_amax:] >= (0.5 * h_max))  # just before threshold past max
+
+    return (h_max, h_amax), (lo_idx, hi_idx)  # fwhm, max position
+
 def current_vs_t0voltage_plots():
     # TODO: Figure out why can't directly output t0_heights
     import os
@@ -328,18 +505,34 @@ def current_vs_t0voltage_plots():
     lvals = np.load(base + f5)
 
     fig, ax = plt.subplots(1, 1, figsize=(16, 12))  # ax1 -> rise_times, ax2 -> amplitudes
-    fig.suptitle("T0 Max Pulse Voltage", fontsize=22)
+    fig.suptitle("T0 Max Pulse Voltage (Normalized)", fontsize=22)
     bins = lvals['bins']  # should be the same for both
-    for counts, label in zip((cvals['counts'], lvals['counts']), ("400 pA", "500 pA")):
-        ax.step(bins, counts/counts.sum(), where='mid', label=label)
+    # for counts, label in zip((cvals['counts'], lvals['counts']), ("400 pA", "500 pA")):
+    for counts, label, color in zip(((lvals['counts']), (cvals['counts'])), ("400 pA", "500 pA"), ('b', 'g')):
+        # if label == "400 pA":
+        #     continue
+        norm_counts = counts/counts.sum()
+        ax.step(bins, norm_counts, color, where='mid', label=label)
+        (h_max, h_amax), (lo_idx, hi_idx) = _histogram_t0_stats(norm_counts)
+        wa = np.average(bins, weights=counts)
+        wa_h = norm_counts[h_amax + (np.abs(bins[h_amax:] - wa)).argmin()]
+
+        # ax.vlines(wa, 0, wa_h, colors=color, linestyles='dashed', linewidths=4)
+        # ax.hlines(h_max/2, bins[lo_idx-12], bins[hi_idx+12], colors=color, linestyles='solid', linewidths=4)
+        print("Current {c} Weighted Average: ".format(c=label), wa)
+        print("Weighted Average Uncertainty: ", 1/np.sqrt(counts[lo_idx:hi_idx].sum()))
+        print("Total counts: ", counts.sum())
+        print("FWHM: ", bins[hi_idx] - bins[lo_idx])
     ax.set_xlabel("Max Voltage (V)", fontsize=18)
     ax.set_ylabel("counts", fontsize=18)
     ax.tick_params(axis='both', labelsize=16)
-    ax.legend(loc='best')
+    ax.legend(loc='best', fontsize=20)
     plt.show()
 
 
 if __name__ == "__main__":
-    plot_lfs_shifts()
-    # current_vs_t0voltage_plots()
+    # plot_lfs_shifts()
+    # plot_lfs_shifts_averaging()
+    current_vs_t0voltage_plots()  # t0 max voltage vs current
     # save_current_t0_max_arrays()
+    # TODO: histogram_t0_FWHM for mean

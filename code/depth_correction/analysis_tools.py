@@ -172,14 +172,21 @@ def parse_to_hdf5(binary_file_name, save_fname=None, n_anodes=16,
 
 
 def preprocess_main():  # binary to (clean) binary
-    base_folder = "C:/Users/tlbr-user/Documents/TlBr_daq_analysis_wc/LocalDigitizerData/"
+    # base_folder = "C:/Users/tlbr-user/Documents/TlBr_daq_analysis_wc/LocalDigitizerData/"
+    base_folder = "C:/Users/justi/Documents/GitHub/TlBr/sample_data/LocalDigitizerData/"  # personal windows
     # data_file_name = "DavisD2022_9_22T16_3.dat"  # smaller Data_hdf5 fields
     # data_file_name = "DavisD2022_9_23T15_51.dat"  # weekend run, 1.7M events. Anode trigger fields but not cathode
     # data_file_name = "DavisD2022_9_27T13_52.dat"  # CG 8, FG 64, no sipm max
     # data_file_name = "DavisD2022_9_28T13_48.dat"  # CG 8, FG 0, cs-137, no sipm max, anode trigger in
     # data_file_name = "DavisD2022_9_28T15_7.dat"  # same as 9_28T15_7 but CG to 32 to see Cs137 features
     # data_file_name = "DavisD2022_9_28T16_13.dat"  # Th-228, CG 8, FG 0, no sipm max
-    data_file_name = "DavisD2022_9_30T13_54.dat"  # Co60, CG 8, FG 0, no sipm max
+    # data_file_name = "DavisD2022_9_30T13_54.dat"  # Co60, CG 8, FG 0, no sipm max
+
+    # IEEE
+    # data_file_name = "DavisD2022_10_20T16_3.dat"  # Na22, no SIPM?
+    # data_file_name = "DavisD2022_10_21T11_11.dat"  # not sure 1
+    # data_file_name = "DavisD2022_10_21T14_51.dat"  # not sure 2
+    data_file_name = "DavisD2022_10_24T9_9.dat"  # Th228 SIPM
 
     fname = base_folder + data_file_name
     n_anodes = 16
@@ -188,7 +195,8 @@ def preprocess_main():  # binary to (clean) binary
 
 def main():  # clean binary to hdf5
     # base_folder = "C:/Users/tlbr-user/Documents/TlBr_daq_analysis_wc/LocalDigitizerData/"  # daq save folder
-    base_folder = "C:/Users/tlbr-user/Documents/TlBr_Analysis_Python/drs4timing/Data_processed_binary/"
+    # base_folder = "C:/Users/tlbr-user/Documents/TlBr_Analysis_Python/drs4timing/Data_processed_binary/"
+    base_folder = "C:/Users/justi/Documents/GitHub/TlBr/code/depth_correction/Data_processed_binary/"  # Na22, no SIPM?
     # data_file_name = "DavisD2022_9_20T17_1_clean.dat"  # ~200k events, overnight, coarse gain = 16, fine gain 127
     # data_file_name = "DavisD2022_9_22T16_3_clean.dat"
     # data_file_name = "DavisD2022_9_22T16_3.dat"
@@ -197,7 +205,11 @@ def main():  # clean binary to hdf5
     # data_file_name = "DavisD2022_9_28T13_48_clean.dat"  # CG 8, FG 0, cs-137, no sipm max, anode trigger in
     # data_file_name = "DavisD2022_9_28T15_7_clean.dat" # same as 9_28T15_7 but CG to 32 to see Cs137 features
     # data_file_name = "DavisD2022_9_28T16_13_clean.dat"  # Th-228, CG 8, FG 0, no sipm max
-    data_file_name = "DavisD2022_9_30T13_54_clean.dat"  # Co60, CG 8, FG 0, no sipm max
+    # data_file_name = "DavisD2022_9_30T13_54_clean.dat"  # Co60, CG 8, FG 0, no sipm max
+    # data_file_name = "DavisD2022_10_20T16_3_clean.dat"  # Probably larger Cs137 data
+    # data_file_name = "DavisD2022_10_21T11_11_clean.dat"  # not sure 1
+    # data_file_name = "DavisD2022_10_21T14_51_clean.dat"  # not sure 2
+    data_file_name = "DavisD2022_10_24T9_9_clean.dat"  # Th228 SIPM
 
     fname = base_folder + data_file_name
     n_anodes = 16
@@ -208,7 +220,9 @@ def process_to_hdf5(raw_binary_file_name):  # raw binary to clean binary to hdf5
     import os
     # from pathlib import Path
 
-    raw_binary_base_folder = "C:/Users/tlbr-user/Documents/TlBr_Analysis_Python/drs4timing/Data_processed_binary/"
+    # raw_binary_base_folder = "C:/Users/tlbr-user/Documents/TlBr_Analysis_Python/drs4timing/Data_processed_binary/"
+    raw_binary_base_folder = "C:/Users/justi/Documents/GitHub/TlBr/code/depth_correction/Data_processed_binary/"  # Na22, no SIPM?
+    # Windows personal PC
     # raw_binary_file_name = "DavisD2022_9_30T13_54.dat"  # Co60, CG 8, FG 0, no sipm max
     clean_binary_file_name = os.path.join(os.getcwd(), "Data_processed_binary",
                                       os.path.splitext(os.path.basename(raw_binary_file_name))[0] + '_clean.dat')
@@ -220,5 +234,5 @@ def process_to_hdf5(raw_binary_file_name):  # raw binary to clean binary to hdf5
 
 
 if __name__ == "__main__":
-    # preprocess_main()
+    preprocess_main()
     main()
