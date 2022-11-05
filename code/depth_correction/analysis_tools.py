@@ -221,7 +221,8 @@ def process_to_hdf5(raw_binary_file_name):  # raw binary to clean binary to hdf5
     # from pathlib import Path
 
     # raw_binary_base_folder = "C:/Users/tlbr-user/Documents/TlBr_Analysis_Python/drs4timing/Data_processed_binary/"
-    raw_binary_base_folder = "C:/Users/justi/Documents/GitHub/TlBr/code/depth_correction/Data_processed_binary/"  # Na22, no SIPM?
+    # raw_binary_base_folder = "C:/Users/justi/Documents/GitHub/TlBr/code/depth_correction/Data_processed_binary/"  # Na22, no SIPM?
+    raw_binary_base_folder = "C:/Users/justi/Documents/GitHub/TlBr/sample_data/LocalDigitizerDataCrocker/"
     # Windows personal PC
     # raw_binary_file_name = "DavisD2022_9_30T13_54.dat"  # Co60, CG 8, FG 0, no sipm max
     clean_binary_file_name = os.path.join(os.getcwd(), "Data_processed_binary",
@@ -234,5 +235,20 @@ def process_to_hdf5(raw_binary_file_name):  # raw binary to clean binary to hdf5
 
 
 if __name__ == "__main__":
-    preprocess_main()
-    main()
+    # stage position data at Crocker
+    # raw_bin_fname = "DavisD2022_10_17T13_57.dat"
+    # raw_bin_fname = "DavisD2022_10_17T14_10.dat"
+    # raw_bin_fname = "DavisD2022_10_17T14_25.dat"
+    # raw_bin_fname = "DavisD2022_10_17T14_39.dat"
+    # raw_bin_fname = "DavisD2022_10_17T14_52.dat"
+    # raw_bin_fname = "DavisD2022_10_17T15_6.dat"
+
+    # overnight data Crocker
+    # raw_bin_fname = "DavisD2022_10_16T18_26.dat"
+
+    # November 1-3 Na-22 Cherenkov Data Run at Davis
+    raw_bin_fname = "DavisD2022_11_1T11_37.dat"
+
+    # preprocess_main()
+    # main()
+    process_to_hdf5(raw_bin_fname)
