@@ -77,7 +77,7 @@ class Analysis(object):
         """Create a 2D histogram from the anode and cathode signals. Range in number of ADC bins. """
 
         if anode_bins is None:
-            anode_bins = (2**12)//4
+            anode_bins = (2**12)//8
             # anode_bins = (2 ** 12)
 
         self.anode_bin_scaler = (2**12)/anode_bins
@@ -178,10 +178,10 @@ class Analysis(object):
             fig1.colorbar(img, fraction=0.046, pad=0.04, ax=ax)
             ax.set_xlabel('Ch ' + str(i + 1) + ' ADC bin')
             ax.set_ylabel('Cathode ADC bin')
-            # ax.set_xlim((0, 1000)) # Cs137, unshifted
-            # ax.set_ylim(150, 350)  # Cs137, unshifted
-            ax.set_xlim((0, 2000)) # Na22, shifted
-            ax.set_ylim(0, 1200)  # Na22, shifted
+            ax.set_xlim((0, 1000)) # Cs137, unshifted
+            ax.set_ylim(150, 350)  # Cs137, unshifted
+            # ax.set_xlim((0, 2000)) # Na22, shifted
+            # ax.set_ylim(0, 1200)  # Na22, shifted
             # ax.set_xlim((0, 1000))  # Cs137, shifted
             # ax.set_ylim(0, 137)  # Cs137, shifted
 
@@ -194,10 +194,10 @@ class Analysis(object):
             m_img[:, :cutoff] = 0
         img = ax2.imshow(m_img, cmap='magma_r', origin='lower', interpolation='none', extent=np.append(a_extent, c_extent), aspect='auto')
         fig2.colorbar(img, fraction=0.046, pad=0.04, ax=ax2)
-        # ax2.set_xlim((0, 1000))  # Cs137
-        # ax2.set_ylim(150, 350)  # Cs137
-        ax2.set_xlim((0, 2000))  # Na22
-        ax2.set_ylim(0, 1200)  # Na22
+        ax2.set_xlim((0, 1000))  # Cs137
+        ax2.set_ylim(150, 350)  # Cs137
+        # ax2.set_xlim((0, 2000))  # Na22
+        # ax2.set_ylim(0, 1200)  # Na22
         # ax2.set_xlim((0, 1000))  # Cs137, shifted
         # ax2.set_ylim(0, 137)  # Cs137, shifted
         ax2.set_xlabel('Max Anode ADC bin')
@@ -316,10 +316,18 @@ class Analysis(object):
         a_proj_unfiltered = np.sum(img, axis=0)  # anode projection unfiltered
         a_proj_filtered = np.sum(img[c_gated_idx, :], axis=0)  # anode projection cathode height filtered
 
-        ax.step(a_step_bins, a_proj_unfiltered, 'b-', where='mid', label='ungated')
-        ax.step(a_step_bins, a_proj_filtered, 'r-', where='mid', label='gated')
+        b_to_en = 511 / 670
 
-        ax.set_ylabel('Counts')
+        ax.step(a_step_bins * b_to_en, a_proj_unfiltered, 'b-', where='mid', label='ungated')
+        ax.step(a_step_bins * b_to_en, a_proj_filtered, 'r-', where='mid', label='gated')
+        # ax.step(a_step_bins, a_proj_unfiltered, 'b-', where='mid', label='ungated')
+        # ax.step(a_step_bins, a_proj_filtered, 'r-', where='mid', label='gated')
+
+        # locs, labels = plt.xticks()
+        # labels = [float(item) * b_to_en for item in locs]
+        # plt.xticks(locs, labels)
+
+        ax.set_ylabel('Counts', fontsize=18)
         ax.set_xlim((0, 1000))
 
         if log_scale:
@@ -333,15 +341,16 @@ class Analysis(object):
                 fit_amplitude, fit_center, fit_sigma, fit_bkg = popt
                 resolution = (2.355 * fit_sigma)/fit_center
                 print("Resolution: ", resolution)
-                ax.step(a_step_bins, gft.gauss(a_step_bins, *popt), 'g--', label='fit: {:.2%} resolution'.format(resolution))
+                # ax.step(a_step_bins, gft.gauss(a_step_bins, *popt), 'g--', label='fit: {:.2%} resolution'.format(resolution))
 
             else:  # TODO: general case
                 pass
 
-            ax.set_xlabel("Channel {n} ADC Bin".format(n=ch))
+            ax.set_xlabel("Energy (keV)".format(n=ch), fontsize=18)
         else:
-            ax.set_title("Amplitude (Channel {n})".format(n=ch))
+            ax.set_title("Amplitude (Channel {n})".format(n=ch), fontsize=18)
 
+        ax.tick_params(axis='both', labelsize=16)
         ax.legend(loc='best')
         plt.show()
 
@@ -415,11 +424,11 @@ def main(filename, **kwargs):
                                            667, 676, 640, 635,
                                            811, 678, 632, 640])  # 50% fall off in 511 line
     prc.det_calibration = coarse_gain_correction * fine_gain_correction
-    prc.create_ca_2d_histograms()
+    prc.create_ca_2d_histograms(cath_dc_calib=False)
     prc.plot_2d_ca_histograms(low_e_filt=80)  # Cs137
     # prc.plot_2d_ca_histograms()
-    prc.plot_1D_projections()
-    # prc.cathode_gating(3)  # Cs137
+    # prc.plot_1D_projections()
+    prc.cathode_gating(3)  # Cs137
     prc.close()
 
 
@@ -428,9 +437,9 @@ if __name__ == "__main__":
     from pathlib import Path
 
     # data_file_name = "DavisD2022_9_23T15_51_clean.h5"  # weekend run
-    # data_file_name = "DavisD2022_10_20T12_7_clean.h5"  # Cs137, good data set
+    data_file_name = "DavisD2022_10_20T12_7_clean.h5"  # Cs137, good data set
     # data_file_name = "DavisD2022_10_20T16_3_clean.h5"  # Probably Cs137
-    data_file_name = "DavisD2022_10_21T11_11_clean.h5"  # Na-22
+    # data_file_name = "DavisD2022_10_21T11_11_clean.h5"  # Na-22
     fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "Data_hdf5", data_file_name)
     print("fname: ", fname)
 

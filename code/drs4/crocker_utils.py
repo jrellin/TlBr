@@ -20,7 +20,7 @@ def linear_interpolate_trigger(time_bins, waveform, baseline, f=np.array([0.2]))
 
 
 def linear_interpolate_trigger2(time_bins, waveform, baseline, f=np.array([0.2]), ret_max_instead=False):
-    """Assumes positive polarity signals. Trying to fix spike issue seen in lf2 p2 1200 skip trigger. Used in crocker_energy_timing.py"""
+    """Assumes positive polarity signals. Trying to fix spike issue seen in lf2 p2 1200 skip trigger. Used in crocker_energy_timing_IEEE.py"""
     wf = waveform - baseline
     t = time_bins
     max_sig_fv = f * np.max(wf)

@@ -247,7 +247,10 @@ if __name__ == "__main__":
     # raw_bin_fname = "DavisD2022_10_16T18_26.dat"
 
     # November 1-3 Na-22 Cherenkov Data Run at Davis
-    raw_bin_fname = "DavisD2022_11_1T11_37.dat"
+    # raw_bin_fname = "DavisD2022_11_1T11_37.dat"
+
+    # Last Na-22 run SIPM/Charge Readout at Davis, high threshold trigger (0.4 V)
+    raw_bin_fname = "DavisD2022_11_3T14_52.dat"
 
     # preprocess_main()
     # main()

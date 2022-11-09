@@ -18,6 +18,7 @@ class SiPM1(object):
         self.channels = self.f.channels
         self.n_channels = [len(self.channels[b]) for b in self.board_ids]
         self.event = next(self.f)  # first event
+        self.event_number = 1
         self.ch_time_bins = np.zeros(1024)  # temporary working memory for time calibration data
         self.buffer = np.zeros(1024)  # temporary working memory for voltage calibration data
         # self.ch_names = ["rf", "lfs", "cherenkov", "t0"]
@@ -59,8 +60,9 @@ class SiPM1(object):
         det_time_bins = time_calibrated_bins[self.ch_names[det_name]]
         self.buffer[:] = voltage_calibrations[self.ch_names[det_name]]
 
-        baseline = np.mean(self.buffer[100:200])
-        bl_edge = 100
+        baseline = np.mean(self.buffer[(det_time_bins > 100) & (det_time_bins < 500)])
+        # baseline = np.mean(self.buffer[100:200])
+        bl_edge = np.argmin(det_time_bins < 100)
 
         self.buffer[:bl_edge] = np.min(self.buffer)
         trg_t, trg_v = linear_interpolate_trigger(det_time_bins, self.buffer, baseline, f=f)
@@ -76,21 +78,28 @@ class SiPM1(object):
         self.buffer[:] = voltage_calibrations[self.ch_names[det_name]]
         # (d)elay (s)hift from cables. If time_calibrated bins is shifted, have to shift back for finding baseline
 
+        pval, ival = (0, 0)
+
+        baseline_vals = np.mean(self.buffer[(det_time_bins > 100) & (det_time_bins < 500)])
+        baseline = np.mean(baseline_vals)
+        self.buffer[:np.argmin(det_time_bins < 100)] = np.min(self.buffer)  # remove spikes at start
+
         peak_idx = np.argmax(self.buffer)
         peak_time = det_time_bins[peak_idx]
 
-        pval, ival = (0, 0)
         if method != "integral":
-            baseline = np.mean(self.buffer[(det_time_bins > 1) & (det_time_bins < 8)])  # 1-8 ns used for baseline
             pval = np.max(self.buffer-baseline)
             if method == "peak":
                 return pval, peak_time, baseline  # return integral/peak, argmax, baseline
 
-        baseline_vals = self.buffer[(det_time_bins > 1) & (det_time_bins < 8)]
-        baseline = np.mean(baseline_vals)
         wf = self.buffer - baseline
-        threshold = 3 * np.std(baseline_vals) # positive polarity assumed
-        integration_low_idx = peak_idx - np.argmin(wf[:peak_idx][::-1] >= threshold)
+        threshold = 3 * np.std(baseline_vals)  # positive polarity assumed
+        try:
+            integration_low_idx = peak_idx - np.argmin(wf[:peak_idx][::-1] >= threshold)
+        except Exception as e:
+            print(e)
+            print("Event ID failure: ", self.event_number)
+
         integration_hi_idx = peak_idx + np.argmin(wf[peak_idx:] >= threshold)
 
         intg_time_bins = det_time_bins[integration_low_idx+1:integration_hi_idx+1] \
@@ -102,7 +111,7 @@ class SiPM1(object):
 
         return (pval, ival), peak_time, baseline   # both
 
-    def process_sipm_evt(self, d_f=0.2):
+    def process_sipm_evt(self, d_f=0.2, increment_to_next_event=True):
         """Method to generate dictionary of event data. Delay NOT included. Both peak and integral values provided.
         This method is for collating SIPM/Chage Induction data sets """
         board = self.board_ids[0]
@@ -114,9 +123,12 @@ class SiPM1(object):
         (cher_en_peak, cher_en_integral), lfs_en_peak_time, lfs_en_baseline = \
             self._cherenkov_energy_signal(time_calibrated_bins, voltage_calibrated, method="both")
 
-        ret_dict = {"det_trig": det_trig, "det_voltage_at_trig": det_voltage_at_trig,
+        ret_dict = {'drs4_evt_id': self.event.event_id,
+                    "det_trig": det_trig, "det_v_at_trig": det_voltage_at_trig,
                     "det_en_peak": cher_en_peak, "det_en_integral": cher_en_integral}
-
+        if increment_to_next_event:
+            self.event = next(self.f)  # next event
+            self.event_number += 1
         return ret_dict
 
     def test_det_points(self):
@@ -152,12 +164,12 @@ def test_triggers(fname):  # no det field, only LFS files here
     tst = SiPM1(fname)
     print(tst.f.board_ids)
 
-    skip = 22
+    skip = 298
     for _ in np.arange(skip):
         tst.event = next(tst.f)
         # print(tst.event.timestamp)
 
-    n_test = 1
+    n_test = 5
 
     for _ in np.arange(n_test):
         tst.test_det_points()
@@ -170,12 +182,13 @@ def main():
 
     # single processing
     # remove below, these are all 4 channel
-    data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p0_v9.dat"  # p0 Cher
+    # data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p0_v9.dat"  # p0 Cher
     # data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p2_v10.dat"  # p2 cherenkov
     # data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p4_v11.dat"  # p4 Cher
     # data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p5_v14.dat"  # p5 Cher
     # data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p6_v12.dat"  # p6 Cher
     # data_file_name = "20221017_Crocker_31.6V_cherenkov_500pa_DualDataset_nim_amp_p8_v13.dat"  # p8 Cher
+    data_file_name = "20221031_Davis_40_5V_Thr20mV_IEEE_Na22_DualDataset.dat"  # Na-22 Data Set 1, det 2, SiPM
     det = "cherenkov"
 
     fname = os.path.join(str(Path(os.getcwd()).parents[1]), "sample_data", "drs4", data_file_name)

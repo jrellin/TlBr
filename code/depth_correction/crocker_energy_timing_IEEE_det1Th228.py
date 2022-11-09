@@ -69,7 +69,7 @@ class Analysis(object):
         return corrected, anode_trgs
 
     def create_timing_2d_histograms(self, energy_limits=None, time_limits=None,
-                                     energy_bins=(2**12)//8, time_bins=1000//2, filter_overflow=True,
+                                    energy_bins=(2**12)//16, time_bins=1000//2, filter_overflow=True,
                                     time_cut=False, time_cut_limits=(5, 20)):
         """Create a 2D histogram from the anode and timing signals. Cherenkov triggering. Energy limits are by bin,
         time limits are in microseconds. """
@@ -149,13 +149,17 @@ class Analysis(object):
 
         self.max_energy_time_histogram, self.anodes_energy_time_histograms = max_img, anode_imgs
 
-    def plot_2d_timing_histograms(self, pretrigger=0.05, plot_trigger=True, **kwargs):
+    def plot_2d_timing_histograms(self, pretrigger=0.05, plot_trigger=True, energy_calib=False, **kwargs):
         # self._create_timing_2d_histograms(**kwargs)
         max_img, anode_imgs = self.max_energy_time_histogram, self.anodes_energy_time_histograms
         # energy_limits=None, time_limits=None, time_bins=1000
         en_edges, t_edges = max_img.bins
 
-        x_extent = (en_edges[0], en_edges[-1])
+        if energy_calib:
+            b_to_en = 511 / 670
+            x_extent = (en_edges[0] * b_to_en, en_edges[-1] * b_to_en)
+        else:
+            x_extent = (en_edges[0], en_edges[-1])
         y_extent = (t_edges[0] * self.sample_period, t_edges[-1] * self.sample_period)
         # y_extent = (t_edges[0], t_edges[-1])
 
@@ -169,12 +173,12 @@ class Analysis(object):
         for i, (ax, anode_hist) in enumerate(zip(fig1.axes, anode_imgs)):
             ch_img = anode_hist.img
             ch_img[0, :] = 0
-            ch_img[-1,: ] = 0
+            ch_img[-1, :] = 0
             # ch_img = np.log(ch_img, where=(ch_img > 0))  # TODO: Remove
             img = ax.imshow(ch_img, cmap='magma_r', origin='lower', interpolation='none', extent=np.append(x_extent, y_extent), aspect='auto')
             fig1.colorbar(img, fraction=0.046, pad=0.04, ax=ax)
-            ax.set_xlabel('ch ' + str(i + 1) + ' ADC bin')
-            ax.set_ylabel('timing')
+            ax.set_xlabel('ch ' + str(i + 1) + ' ADC bin', fontsize=18)
+            ax.set_ylabel('timing', fontsize=18)
             if plot_trigger:
                 ax.axhline(y=pretrigger * self.samples * self.sample_period, color='g', linestyle='--')
             ax.set_xlim((0, 1200))
@@ -186,13 +190,18 @@ class Analysis(object):
         m_img[0, :] = 0
         m_img[-1, :] = 0
         img = ax2.imshow(m_img, cmap='magma_r', origin='lower', interpolation='none', extent=np.append(x_extent, y_extent), aspect='auto')
-        fig2.colorbar(img, fraction=0.046, pad=0.04, ax=ax2)
+        cbar2 = fig2.colorbar(img, fraction=0.046, pad=0.04, ax=ax2)
+        cbar2.ax.tick_params(labelsize=16)
         if plot_trigger:
             ax2.axhline(y=pretrigger * self.samples * self.sample_period, color='g', linestyle='--')
         # ax2.set_xlim((0, 600))
         # ax2.set_ylim(46, 50)
-        ax2.set_xlabel('Max Anode ADC bin')
-        ax2.set_ylabel('timing')
+        if energy_calib:
+            ax2.set_xlabel('Max Anode Energy (keV)', fontsize=18)
+        else:
+            ax2.set_xlabel('Max Anode ADC bin', fontsize=18)
+        ax2.set_ylabel('timing (' + r'$\mu$' + 's)', fontsize=18)
+        ax2.tick_params(axis='both', labelsize=16)
 
         fig1.tight_layout()
         fig2.tight_layout()
@@ -230,12 +239,12 @@ class Analysis(object):
             if energy_calib:
                 b_to_en = 511 / 670 # * energy_scaling
                 e_ax.step(en_step_bins * b_to_en, en_proj, 'b-', where='mid')
-                e_ax.set_xlabel('Energy (keV))')
+                e_ax.set_xlabel('Energy (keV))', fontsize=18)
                 # a_ax.set_xlim((0, 800))  # Cs137, shifted
                 # e_ax.set_xlim((0, 1600))  # Na22, shifted
             else:
                 e_ax.step(en_step_bins, en_proj, 'b-', where='mid')
-                e_ax.set_xlabel('Anode ADC')
+                e_ax.set_xlabel('Anode ADC', fontsize=18)
 
             # e_ax.step(en_step_bins, en_proj, 'b-', where='mid')
             t_ax.step(t_step_bins * self.sample_period, t_proj, 'b-', where='mid')
@@ -243,8 +252,10 @@ class Analysis(object):
             e_ax.set_title("Amplitude (Channel {n})".format(n=i + 1))
             t_ax.set_title("Amplitude (Channel {n})".format(n=i + 1))
             # ax.set_xlabel('ch ' + str(i+1))
-            e_ax.set_ylabel('Counts')
-            t_ax.set_ylabel('Counts')
+            e_ax.set_ylabel('Counts', fontsize=18)
+            t_ax.set_ylabel('Counts', fontsize=18)
+            e_ax.tick_params(axis='both', labelsize=16)
+            t_ax.tick_params(axis='both', labelsize=16)
 
             if energy_log_scale:
                 e_ax.set_yscale('log')
@@ -267,21 +278,28 @@ class Analysis(object):
         if energy_calib:
             b_to_en = 511 / 670 # * energy_scaling
             ax31.step(en_step_bins * b_to_en, e_max_proj, 'b-', where='mid')
-            ax31.set_xlabel('Anode (keV))')
+            ax31.set_xlabel('Anode (keV))', fontsize=18)
             # ax31.set_xlim((0, 800))  # Cs137, shifted
             # ax31.set_xlim((0, 1600))  # Na22, shifted
         else:
             ax31.step(en_step_bins, e_max_proj, 'b-', where='mid')
-            ax31.set_xlabel('Anode ADC')
+            ax31.set_xlabel('Anode ADC', fontsize=18)
 
         # ax31.step(en_step_bins, e_max_proj, 'b-', where='mid')
         ax32.step(t_step_bins * self.sample_period, t_max_proj, 'b-', where='mid')
 
-        ax31.set_ylabel('Counts')
-        ax32.set_ylabel('Counts')
+        ax31.set_ylabel('Counts', fontsize=18)
+        ax32.set_ylabel('Counts', fontsize=18)
+        ax31.tick_params(axis='both', labelsize=16)
+        ax32.tick_params(axis='both', labelsize=16)
 
-        ax31.set_xlabel('Energy Bin')
-        ax32.set_xlabel('Time (us))')
+        # if energy_calib:
+        #     ax31.set_xlabel('Energy Bin', fontsize=18)
+        # else:
+        #     ax31.set_xlabel('Energy (keV)', fontsize=18)
+        ax32.set_xlabel('Time (us))', fontsize=18)
+        ax31.tick_params(axis='both', labelsize=16)
+        ax32.tick_params(axis='both', labelsize=16)
 
         if energy_log_scale:
             ax31.set_yscale('log')  # energy
@@ -297,7 +315,7 @@ class Analysis(object):
 
         plt.show()
 
-    def plot_energy_by_timing_slices(self, time_start, delta_t, n_bins):
+    def plot_energy_by_timing_slices(self, time_start, delta_t, n_bins, energy_calib=True):
         """Overlays multiple time slices of generated 2d time energy histogram. Time start, delta_t are in
         microseconds. Checks if n bins from time_start is in range, throws error otherwise."""
         max_img, (e_bins, t_bins) = self.max_energy_time_histogram.img, self.max_energy_time_histogram.bins
@@ -339,16 +357,25 @@ class Analysis(object):
         fig, ax = plt.subplots(1, 1, figsize=(16, 12))  # ax31 -> energy, ax32 -> time
 
         for t, t_bin_hist in zip(start_bin, summed_img):
-            # ax.step(en_step_bins, t_bin_hist, where='mid',
-            #         label=('{start}-{end}' + r'$\mu$' + 's').format(start=t, end=t + t_bin_width))
-            ax.plot(en_step_bins, t_bin_hist,
-                    label=('{start}-{end}' + r'$\mu$' + 's').format(start=t, end=t + delta_t))
+            if energy_calib:
+                b_to_en = 511 / 670  # * energy_scaling
+                ax.step(en_step_bins * b_to_en, t_bin_hist, where='mid',
+                        label=('{start}-{end}' + r'$\mu$' + 's').format(start=t, end=t + delta_t))
+            else:
+                ax.step(en_step_bins, t_bin_hist, where='mid',
+                        label=('{start}-{end}' + r'$\mu$' + 's').format(start=t, end=t + delta_t))
+            # ax.plot(en_step_bins, t_bin_hist,
+            #         label=('{start}-{end}' + r'$\mu$' + 's').format(start=t, end=t + delta_t))
 
         ax.set_yscale('log')
-        ax.set_xlabel('ADC Bin')
-        ax.set_ylabel('Counts')
-        ax.legend(loc='best')
-        ax.set_title("Cherenkov Time Slice Energy Histograms")
+        if energy_calib:
+            ax.set_xlabel('Energy (keV)', fontsize=18)
+        else:
+            ax.set_xlabel('ADC Bin', fontsize=18)
+        ax.set_ylabel('Counts', fontsize=18)
+        ax.legend(loc='best', fontsize=18)
+        ax.tick_params(axis='both', labelsize=16)
+        ax.set_title("Cherenkov Time Slice Energy Histograms", fontsize=20)
 
         plt.show()
 
@@ -424,10 +451,12 @@ def main(filename, **kwargs):
     # prc.plot_2d_timing_histograms()
     # time_cut=False, time_cut_limits=(5, 20)
     pretrigger = 0.15
-    prc.create_timing_2d_histograms(time_cut=True, time_cut_limits=(35, 60))
-    prc.plot_2d_timing_histograms(pretrigger=pretrigger)
-    prc.plot_1D_projections(pretrigger=pretrigger)
-    # prc.plot_energy_by_timing_slices(46, 8, 5)
+    time_cut = True
+    energy_calib = True
+    prc.create_timing_2d_histograms(time_cut=time_cut, time_cut_limits=(0, 180))
+    prc.plot_2d_timing_histograms(pretrigger=pretrigger, energy_calib=energy_calib)
+    prc.plot_1D_projections(pretrigger=pretrigger, energy_calib=energy_calib)
+    prc.plot_energy_by_timing_slices(51, 5, 4)
 
     # prc.plot_1D_projections()
     # prc.plot_SIPM_amplitudes()
@@ -458,7 +487,7 @@ def main_combine_data(**kwargs):
 
     accumulator = Analysis(os.path.join(str(Path(os.getcwd()).parents[1]), "Data_hdf5",
                                         data_files[files_to_include[0]]), **kwargs)
-    accumulator.det_calibration = coarse_gain_correction * fine_gain_correction * scale_gain
+    # accumulator.det_calibration = coarse_gain_correction * fine_gain_correction * scale_gain
     accumulator.create_timing_2d_histograms(time_cut=t_cut)
     # self.max_energy_time_histogram, self.anodes_energy_time_histograms
     # Initialized with first data file
@@ -498,8 +527,8 @@ if __name__ == "__main__":
     # data_file_name = "DavisD2022_9_20T17_1_clean.h5"
     # data_file_name = "DavisD2022_9_22T16_3_clean.h5"
     # data_file_name = "DavisD2022_9_23T15_51_clean.h5"  # weekend run
-    # data_file_name = "DavisD2022_9_28T13_48_clean.h5"  # Cs-137
-    # data_file_name = "DavisD2022_9_28T16_13_clean.h5"  # Th-228, CG 8, FG 0, no sipm max
+    # file_name = "DavisD2022_9_28T13_48_clean.h5"  # Cs-137
+    file_name = "DavisD2022_9_28T16_13_clean.h5"  # Th-228, CG 8, FG 0, no sipm max, IEEE, det 1
     # data_file_name = "DavisD2022_9_30T13_54_clean.h5" # Co60, CG 8, FG 0, no sipm max
 
     # IEEE
@@ -511,7 +540,8 @@ if __name__ == "__main__":
     # file_name = "DavisD2022_10_16T18_26_clean.h5"
 
     # Davis
-    file_name = "DavisD2022_11_1T11_37_clean.h5"  # Na-22 November 1-3 Run
+    # file_name = "DavisD2022_10_24T9_9_clean.h5"  # paired Th228, det 2
+    # file_name = "DavisD2022_11_1T11_37_clean.h5"  # Na-22 November 1-3 Run
 
     # fname = os.path.join(str(Path(os.getcwd()).parents[1]), "Data_hdf5", data_file_name)
     # print("fname: ", fname)

@@ -121,7 +121,7 @@ if __name__ == "__main__":
         print(f.board_ids)
         print(f.channels)
 
-        skip = 4000  # 10000, 1004 # 4000 for LFS spike artifact
+        skip = 0  # 10000, 1004 # 4000 for LFS spike artifact
         for _ in np.arange(skip):
             next(f)
 

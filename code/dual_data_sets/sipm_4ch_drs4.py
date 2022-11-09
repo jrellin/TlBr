@@ -181,28 +181,35 @@ class SiPM4(object):
 
         return (pval, ival), peak_time, baseline   # both
 
-    def process_sipm_evt(self, t0_f=np.array([0.2]), d_f=0.2):
+    def process_sipm_evt(self, t0_f=np.array([0.2]), d_f=0.2, increment_to_next_event=True):
         """Method to generate dictionary of event data. Delay NOT included. Both peak and integral values provided.
         This method is for collating SIPM/Chage Induction data sets """
         board = self.board_ids[0]
         channels = self.channels[board]
         voltage_calibrated = self.event_voltage_calibrate(board, channels)
         time_calibrated_bins = self.event_timing_calibrate(board, channels)
+        rfc = np.ones(12) * -1  # 44.4 ns period for 200 ns trace
+        rfcs = np.ones(12) * -1  # slopes of crossings
 
         crossings, slope_sign = self._rf_ref_points(time_calibrated_bins, voltage_calibrated)
+        rfc[:crossings.size] = crossings
+        rfcs[:crossings.size] = slope_sign
+
         t0_trigs, t0_voltage_at_trig = self._t0_ref_points(time_calibrated_bins, voltage_calibrated, f=t0_f)
         det_trig, det_voltage_at_trig = self._detector_trigger(time_calibrated_bins, voltage_calibrated, f=d_f)
         (cher_en_peak, cher_en_integral), lfs_en_peak_time, lfs_en_baseline = \
             self._cherenkov_energy_signal(time_calibrated_bins, voltage_calibrated, method="both", delay_corrected=False)
 
-        ret_dict = {"rf_zero_crossings": crossings, "rf_zero_crossing_signs": slope_sign,
-                    "t0_trigs": t0_trigs, "t0_voltage_at_trig": t0_voltage_at_trig,
-                    "det_trig": det_trig, "det_voltage_at_trig": det_voltage_at_trig,
+        ret_dict = {"drs4_evt_id": self.event.event_id,
+                    "rf_zero_cs": rfc, "rf_zero_cs_signs": rfcs,
+                    "t0_trigs": t0_trigs, "t0_v_at_trig": t0_voltage_at_trig,
+                    "det_trig": det_trig, "det_v_at_trig": det_voltage_at_trig,
                     "det_en_peak": cher_en_peak, "det_en_integral": cher_en_integral}
-
+        if increment_to_next_event:
+            self.event = next(self.f)  # next event
         return ret_dict
 
-    def test_rf_t0_points(self, delay=False):
+    def test_det_points(self, delay=False):
         board = self.board_ids[0]
         channels = self.channels[board]
         voltage_calibrated = self.event_voltage_calibrate(board, channels)
@@ -254,7 +261,7 @@ def test_triggers(fname):  # no det field, only LFS files here
 
     delay = False
     for _ in np.arange(n_test):
-        tst.test_rf_t0_points(delay=delay)
+        tst.test_det_points(delay=delay)
         tst.event = next(tst.f)
 
 
